@@ -1,323 +1,296 @@
 # PhoneClaw
 
-[简体中文](./README.md)
+[中文](README.md) · [Report an Issue](https://github.com/kellyvv/phoneclaw/issues) · [Request a Feature](https://github.com/kellyvv/phoneclaw/issues)
 
-PhoneClaw is a local AI agent that runs directly on iPhone.  
-It uses **Gemma 4 + MLX + Metal GPU** for on-device inference, so chats and tool calls stay on the device by default.
+A local AI Agent that runs entirely on your iPhone. No cloud, no network, no data uploads.
 
-## What It Is
+PhoneClaw uses Gemma 4 to run inference entirely on-device. It does not depend on any cloud service and does not upload your conversations.
 
-PhoneClaw is an `LLM + SKILL` style local agent:
+## Current Capabilities
 
-- the LLM decides what the user wants
-- `SKILL.md` files describe how a capability should behave
-- native tools execute the actual device-side action
+| Capability | Description |
+|------------|-------------|
+| Image Understanding | Ask questions about photos or images directly, multimodal input |
+| Clipboard | Read and write the system clipboard |
+| Device Info | Query device name, OS version, memory, and more |
+| Text Tools | Hash calculation, text reversal, and more |
+| Calendar | Create calendar events |
+| Reminders | Create reminders with push notifications at the due time |
+| Contacts | Create or update contacts, deduped by phone number |
 
-Built-in native capabilities currently include:
+## Features
 
-- clipboard read/write
-- device info
-- text utilities
-- calendar event creation
-- reminders creation
-- contacts create/update
-
-## Highlights
-
-- fully offline by default
-- image input supported
-- file-driven skill system
-- multi-step tool calling
-- built-in permissions page, system prompt editor, and model switcher
-- memory-aware MLX runtime management for iPhone limits
+- Fully offline, no network by default
+- Image input support (multimodal)
+- File-driven Skill system — add new capabilities without rewriting the Agent
+- Multi-round tool calling
+- Built-in permission management, system prompt editor, and model switcher
+- Dynamic history trimming and GPU cache management for iPhone memory limits
 
 ## Requirements
 
-- macOS + Xcode 16 or newer
-- iOS 17.0 or newer
+- macOS + Xcode 16 or later
+- iOS 17.0 or later
 - CocoaPods
-- an Apple developer signing identity for real-device testing
+- A real device with a developer account (Apple ID)
 
-Model guidance:
+Model recommendation:
 
-- `Gemma 4 E2B`: better default choice for distribution
-- `Gemma 4 E4B`: stronger but heavier, better for high-end devices
+| Model | Use case |
+|-------|----------|
+| Gemma 4 E2B | More stable, recommended for general distribution, A16 and above |
+| Gemma 4 E4B | Stronger output, higher memory usage, recommended for iPhone 15 Pro and above |
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/kellyvv/phoneclaw.git
+cd phoneclaw
+```
+
+### 2. Install dependencies
 
 ```bash
 pod install
 ```
 
-### 2. Download a model
+### 3. Download a model
 
-PhoneClaw expects these exact folder names under `Models/`.
-
-Install the Hugging Face CLI first:
+Directory names must match exactly as shown below. Install the Hugging Face CLI first:
 
 ```bash
 brew install hf
-```
-
-or:
-
-```bash
+# or
 pip install -U "huggingface_hub"
 ```
 
-Download only `E2B`:
-
+E2B only (recommended):
 ```bash
 mkdir -p ./Models/gemma-4-e2b-it-4bit
 hf download mlx-community/gemma-4-e2b-it-4bit --local-dir ./Models/gemma-4-e2b-it-4bit
 ```
 
-Download only `E4B`:
-
+E4B only:
 ```bash
 mkdir -p ./Models/gemma-4-e4b-it-4bit
 hf download mlx-community/gemma-4-e4b-it-4bit --local-dir ./Models/gemma-4-e4b-it-4bit
 ```
 
-Download both:
-
+Both models:
 ```bash
-mkdir -p ./Models/gemma-4-e2b-it-4bit
-mkdir -p ./Models/gemma-4-e4b-it-4bit
+mkdir -p ./Models/gemma-4-e2b-it-4bit ./Models/gemma-4-e4b-it-4bit
 hf download mlx-community/gemma-4-e2b-it-4bit --local-dir ./Models/gemma-4-e2b-it-4bit
 hf download mlx-community/gemma-4-e4b-it-4bit --local-dir ./Models/gemma-4-e4b-it-4bit
 ```
 
-Notes:
+Expected directory structure after download:
 
-- `Models/` is already ignored by Git
-- the current Hugging Face repo sizes are roughly `3.58 GB` for `E2B` and `5.22 GB` for `E4B`
-- you can also download files manually from the model pages if you prefer
+```
+Models/
+├── gemma-4-e2b-it-4bit/
+│   ├── config.json
+│   ├── tokenizer.json
+│   ├── processor_config.json
+│   ├── chat_template.jinja
+│   ├── model.safetensors
+│   └── model.safetensors.index.json
+└── gemma-4-e4b-it-4bit/
+```
 
-### 3. Open the workspace
+> `Models/` is gitignored and will not be committed.
+> Approximate repository sizes on Hugging Face: E2B ~3.58 GB, E4B ~5.22 GB.
+> You can also download manually from the model page and place files in the correct directory.
+
+### 4. Open the workspace
 
 ```bash
 open PhoneClaw.xcworkspace
 ```
 
-Always open the workspace, not the project file.
+> Do not open `.xcodeproj`. Always open `.xcworkspace`.
 
-### 4. Configure signing and run
+### 5. Configure signing and run
 
-In Xcode:
+1. In Xcode, select the PhoneClaw target
+2. Open Signing & Capabilities
+3. Set your Team
+4. Change the Bundle Identifier to a unique value
+5. Connect your iPhone and press ⌘R
 
-1. select the `PhoneClaw` target
-2. open `Signing & Capabilities`
-3. choose your `Team`
-4. set a unique `Bundle Identifier`
-5. connect your iPhone
-6. press `⌘R`
+On first install, if prompted to trust the developer certificate: Settings → General → VPN & Device Management → Trust
 
-### 5. First launch
+### 6. First use
 
-Inside the app:
+After opening the app:
 
-- top-right puzzle icon: Skill manager
-- top-right sliders icon: model settings / system prompt / permissions
+- Top-right puzzle icon: Skill management
+- Top-right slider icon: Model settings / system prompt / permissions
 
-It is recommended to enable these permissions first:
+Enable Calendar, Reminders, and Contacts in the permissions page first, then try:
 
-- Calendar
-- Reminders
-- Contacts
-
-Then try:
-
-- `What is this phone's device information?`
-- `Remind me to send the file tonight at 8 PM`
-- `Save Wang Zong's number 13812345678`
-
-## How to Ship Only One Model
-
-This is the most practical setup for distribution.
-
-### Option A: Ship only `E2B`
-
-Keep:
-
-```text
-Models/gemma-4-e2b-it-4bit
+```
+What is this device's information?
+Remind me tonight at 8 to send the file
+Save Wang's phone number 13812345678
 ```
 
-Remove:
+## Bundling Only One Model
 
-```text
-Models/gemma-4-e4b-it-4bit
+This is the most common distribution setup, especially when shipping E2B only.
+
+### Option A — E2B only
+
+1. Keep `Models/gemma-4-e2b-it-4bit`, remove `Models/gemma-4-e4b-it-4bit`
+2. In Xcode's Project Navigator, delete the unused model folder reference and choose Remove Reference
+3. In PhoneClaw > Build Phases > Copy Bundle Resources, confirm only the desired model remains
+4. Edit `availableModels` in `LLM/MLXLocalLLMService.swift` to only include the models actually shipped (otherwise the settings page will show options that don't exist)
+
+### Option B — Both E2B and E4B
+
+Keep both directories and both Xcode resource references. Users can switch in the app's model settings page.
+
+## Adding Custom Skills
+
+Create a `SKILL.md` file in the app's data directory and hot-reload in-app:
+
 ```
-
-Then do both of the following:
-
-1. remove the unused model folder reference in Xcode with `Remove Reference`
-2. verify `PhoneClaw > Build Phases > Copy Bundle Resources` only includes the model you want to ship
-
-Finally, update [LLM/MLXLocalLLMService.swift](./LLM/MLXLocalLLMService.swift) so `availableModels` only contains the model(s) you actually distribute.  
-Otherwise the configuration page will still show unavailable options.
-
-### Option B: Ship both `E2B + E4B`
-
-Keep both model folders and both Xcode resource references.  
-Users can switch models from the in-app configuration page.
-
-## Built-in Skills
-
-| Skill | Tools |
-| --- | --- |
-| Clipboard | `clipboard-read`, `clipboard-write` |
-| Device | `device-info`, `device-name`, `device-model`, `device-system-version`, `device-memory`, `device-processor-count` |
-| Text | `calculate-hash`, `text-reverse` |
-| Calendar | `calendar-create-event` |
-| Reminders | `reminders-create` |
-| Contacts | `contacts-upsert` |
-
-## Custom Skills
-
-The smallest way to add a new capability is to add a new `SKILL.md`:
-
-```text
 Application Support/PhoneClaw/skills/<skill-id>/SKILL.md
 ```
-
-Example:
 
 ```yaml
 ---
 name: MySkill
-name-zh: 我的能力
+name-zh: My Skill
 description: What this skill does
 version: "1.0.0"
 icon: star
 disabled: false
 
 triggers:
-  - keyword
+  - keyword1
 
 allowed-tools:
   - my-tool-name
 
 examples:
-  - query: "How a user might ask for it"
-    scenario: "When it should trigger"
+  - query: "How a user might phrase it"
+    scenario: "What scenario triggers this"
 ---
 
-# Skill instructions
+# Skill Instructions
 
-Tell the model when to call tools, how to build arguments, and when to answer directly.
+Tell the model when to call tools, how to structure arguments, and when to answer directly.
 ```
 
-If the skill needs real native execution, register the tool in [Skills/ToolRegistry.swift](./Skills/ToolRegistry.swift).
+If this skill needs to call native iOS APIs, register the tool in `Skills/ToolRegistry.swift`.
 
-## Key Directories
+## Project Structure
 
-```text
+```
 PhoneClaw/
-├── App/
-├── Agent/
-├── LLM/
-├── Skills/
-├── UI/
-├── Models/
+├── App/                         # App entry point
+├── Agent/                       # Agent loop and multi-round tool calling
+├── LLM/                         # Local inference and prompt construction
+├── Skills/                      # Skill parsing, tool registry, data models
+├── UI/                          # Chat UI, skill management, settings
+├── Models/                      # Local model directory (gitignored)
 ├── PhoneClaw.xcworkspace
 └── README.md
 ```
 
-## Runtime Flow
+Execution chain:
 
-```text
+```
 User input
-→ PromptBuilder
-→ local Gemma 4 inference
-→ load_skill when needed
-→ read SKILL.md
-→ execute native tool
-→ produce final answer
+  → PromptBuilder assembles the prompt
+  → Gemma 4 runs local inference
+  → Calls load_skill when a capability is needed
+  → Reads the corresponding SKILL.md
+  → Executes the native tool
+  → Returns the final response
 ```
 
-## Useful Links
+## FAQ
 
-- Hugging Face CLI docs: <https://huggingface.co/docs/huggingface_hub/guides/cli>
-- Hugging Face download guide: <https://huggingface.co/docs/huggingface_hub/en/guides/download>
-- Gemma 4 E2B MLX model: <https://huggingface.co/mlx-community/gemma-4-e2b-it-4bit>
-- Gemma 4 E4B MLX model: <https://huggingface.co/mlx-community/gemma-4-e4b-it-4bit>
+Why are there no permission dialogs after install?
+The corresponding Skill has likely not reached the system API call yet. If you previously denied permission, iOS will not prompt again — go to system Settings to re-enable.
+
+Why does the model fail to load after switching?
+Verify that the model directory name matches `availableModels` in code, that the model was actually included in the app bundle, and that the device has enough memory.
+
+Why does creating a reminder fail?
+The latest code first attempts to reuse an existing writable reminder list. If none is found, it tries to automatically create a PhoneClaw list. If that also fails, the system reminder source itself is likely read-only.
 
 ## Roadmap
 
-PhoneClaw is meant to grow into a genuinely useful on-device iPhone agent, not just a chat UI with a couple of tools.
-
 ### 1. More iOS native APIs
 
-Planned areas include:
-
-- files and folders
-- photo reading, organization, and understanding
-- Notes integration
-- local notifications
-- maps and location-related tasks
-- Safari / URL handoff
-- broader calendar, reminders, and contacts workflows
+- File and directory access
+- Photos — reading, organizing, describing, searching
+- Notes
+- Local notifications
+- Maps and location
+- Safari / URL opening and context passing
+- More read/write coverage for contacts, calendar, and reminders
 
 ### 2. More Skills
 
-The long-term direction is to keep capabilities modular through Skills instead of pushing everything into one giant prompt.
+Continue breaking capabilities into focused Skills rather than embedding all logic in a single large prompt. Directions worth adding:
 
-Likely next skills:
+- File management
+- Photo understanding and organization
+- Schedule planning
+- Personal information management
+- Local knowledge base search
+- Voice input / text-to-speech
 
-- file management
-- photo understanding and organization
-- schedule planning
-- personal information management
-- local knowledge retrieval
-- voice input / voice output
+### 3. More local models
 
-### 3. More local models working together
+Beyond the main chat model, suitable additions include:
 
-Beyond the main chat model, good future additions include:
+- OCR model
+- Speech recognition model
+- Speech synthesis model
+- Embedding / Reranker model
+- A smaller tool argument extraction model
+- A stronger planning model or multi-model pipeline
 
-- OCR models
-- speech recognition models
-- text-to-speech models
-- embedding / reranker models
-- smaller argument-extraction models
-- stronger planners or multi-model orchestration
-
-That would move PhoneClaw from “one model does everything” toward a more practical local multi-model agent stack.
+This moves PhoneClaw from "one big model doing everything" toward "multiple local models working together."
 
 ### 4. Cross-app automation
 
-This is a key direction, but it needs to stay realistic within iOS security limits.  
-The project is not assuming unrestricted UI control over every app. Instead, the practical path is:
+PhoneClaw will not assume desktop-style control over arbitrary apps. Instead it will use what iOS actually allows:
 
-- `App Intents`
-- `Shortcuts`
-- `URL Schemes / Deep Links`
-- `Share Sheet / Share Extensions`
-- clipboard handoff
-- notification-driven flows
+- App Intents / Shortcuts
+- URL Scheme / Deep Link
+- Share Sheet extensions
+- Clipboard relay
+- System notifications and app launching
 
-The goal is to make cross-app workflows feel natural while staying inside what iOS actually allows.
+A realistic goal: pass content between apps, open a specific app to a specific screen, and compress multi-step operations into a single natural language command.
 
-### 5. External hardware and visual expansion
+### 5. External hardware and visual input
 
-Beyond the phone itself, PhoneClaw is also intended to explore workflows that involve external hardware.  
-That may include combining external video input, on-device visual understanding, and local models so PhoneClaw can gradually move from “answering inside the phone” toward richer real-world perception and orchestration.
+Explore connecting external video input and screen understanding with local models, so PhoneClaw goes beyond answering questions in isolation and develops stronger real-world perception and scheduling capabilities.
 
-This part is intentionally kept a little vague for now.
+### Suggested priority order
 
-### 6. Suggested priorities
+If ordered by "fastest path to meaningful experience improvement":
 
-If the goal is to improve real user value quickly, the strongest order is:
-
-1. files / photos / notes
+1. Files / Photos / Notes — three high-frequency API categories
 2. Shortcuts / App Intents integration
 3. OCR + speech recognition
-4. local knowledge retrieval
-5. richer automation-oriented skill composition
+4. Local knowledge base search
+5. Finer-grained automated Skill orchestration
+
+## References
+
+- [Hugging Face CLI documentation](https://huggingface.co/docs/huggingface_hub/guides/cli)
+- [Hugging Face download guide](https://huggingface.co/docs/huggingface_hub/en/guides/download)
+- [Gemma 4 E2B MLX model](https://huggingface.co/mlx-community/gemma-4-e2b-it-4bit)
+- [Gemma 4 E4B MLX model](https://huggingface.co/mlx-community/gemma-4-e4b-it-4bit)
 
 ## License
 
