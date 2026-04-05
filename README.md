@@ -20,12 +20,17 @@
 
 ## 演示视频
 
-<div style="display: flex; flex-direction: column; width: 100%; align-items: center;">
-  <div style="text-align: center; width: 100%; max-width: 800px;">
+<div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+  <div style="text-align: center; flex: 1; min-width: 280px; max-width: 480px;">
     <video src="https://github.com/user-attachments/assets/be57bb84-ef68-406f-9dd2-5e214db1b191" width="100%" height="auto" controls autoplay loop muted></video>
-    <p style="color: gray; font-size: 12px; text-align: center;">PhoneClaw 演示 · <a href="https://github.com/kellyvv/PhoneClaw/issues/2#issue-4208731499">演示 2</a></p>
+    <p style="color: gray; font-size: 12px;">演示 1</p>
+  </div>
+  <div style="text-align: center; flex: 1; min-width: 280px; max-width: 480px;">
+    <video src="https://github.com/user-attachments/assets/ad542896-4f2e-45aa-91fc-be58c0365ca6" width="100%" height="auto" controls autoplay loop muted></video>
+    <p style="color: gray; font-size: 12px;">演示 2</p>
   </div>
 </div>
+
 
 PhoneClaw 是一个运行在 iPhone 上的本地 AI Agent。它使用 Gemma 4 在设备端完成推理，不依赖云端，不上传聊天内容。
 
