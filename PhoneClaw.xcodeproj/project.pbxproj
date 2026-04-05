@@ -12,6 +12,7 @@
 		5084E1CD2E831BC05F5E4374 /* PromptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7C06DA449D1395217A42D5 /* PromptBuilder.swift */; };
 		9412304167DACB86E5D60D49 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5ED928BF14864713A9A9D16 /* ContentView.swift */; };
 		97E96A2FBFFAF609F276A896 /* ConfigurationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E62C3CEFC7AE63873D751E75 /* ConfigurationsView.swift */; };
+		A7D611F40C180838492899EC /* Pods_PhoneClaw.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 23250423DC31D59A20B0B826 /* Pods_PhoneClaw.framework */; };
 		AA1000000000000000000001 /* LLMEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000001 /* LLMEngine.swift */; };
 		AA1000000000000000000002 /* MLXLocalLLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000002 /* MLXLocalLLMService.swift */; };
 		AA1000000000000000000003 /* Gemma4Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000003 /* Gemma4Config.swift */; };
@@ -21,8 +22,6 @@
 		AA1000000000000000000007 /* Gemma4RoPE.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000007 /* Gemma4RoPE.swift */; };
 		AA1000000000000000000008 /* Gemma4TextModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000008 /* Gemma4TextModel.swift */; };
 		AA1000000000000000000009 /* MLXTokenizersLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000009 /* MLXTokenizersLoader.swift */; };
-		AA1000000000000000000018 /* Gemma4VisionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000018 /* Gemma4VisionModel.swift */; };
-		AA1000000000000000000019 /* Gemma4Processor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000019 /* Gemma4Processor.swift */; };
 		AA1000000000000000000011 /* MLX in Frameworks */ = {isa = PBXBuildFile; productRef = AA5000000000000000000001 /* MLX */; };
 		AA1000000000000000000012 /* MLXFast in Frameworks */ = {isa = PBXBuildFile; productRef = AA5000000000000000000002 /* MLXFast */; };
 		AA1000000000000000000013 /* MLXNN in Frameworks */ = {isa = PBXBuildFile; productRef = AA5000000000000000000003 /* MLXNN */; };
@@ -30,7 +29,8 @@
 		AA1000000000000000000015 /* MLXVLM in Frameworks */ = {isa = PBXBuildFile; productRef = AA5000000000000000000005 /* MLXVLM */; };
 		AA1000000000000000000016 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = AA5000000000000000000006 /* Tokenizers */; };
 		AA1000000000000000000017 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = AA5000000000000000000007 /* MLXLLM */; };
-		A7D611F40C180838492899EC /* Pods_PhoneClaw.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 23250423DC31D59A20B0B826 /* Pods_PhoneClaw.framework */; };
+		AA1000000000000000000018 /* Gemma4VisionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000018 /* Gemma4VisionModel.swift */; };
+		AA1000000000000000000019 /* Gemma4Processor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000000000000000000019 /* Gemma4Processor.swift */; };
 		B881A2E7F9483D5ED2AC206B /* SkillsManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D269F8BFCAB68D82440F704B /* SkillsManagerView.swift */; };
 		B8A84E4D0DDDE011B5929DA2 /* AgentEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E18A47114A10132E25E220F8 /* AgentEngine.swift */; };
 		C1A2B3D4E5F607182930A1B2 /* SkillLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3D4E5F607182930A1B3 /* SkillLoader.swift */; };
@@ -50,7 +50,7 @@
 		4DD9808FE93325C3CE4CFA00 /* PhoneClawApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneClawApp.swift; sourceTree = "<group>"; };
 		52F30C6348B834E5D157205F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		571908036E6DCED1D58C1E9E /* Skills.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skills.swift; sourceTree = "<group>"; };
-
+		A1AB7F250BEEFF938318AA75 /* Pods-PhoneClaw.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PhoneClaw.debug.xcconfig"; path = "Target Support Files/Pods-PhoneClaw/Pods-PhoneClaw.debug.xcconfig"; sourceTree = "<group>"; };
 		AA2000000000000000000001 /* LLMEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMEngine.swift; sourceTree = "<group>"; };
 		AA2000000000000000000002 /* MLXLocalLLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXLocalLLMService.swift; sourceTree = "<group>"; };
 		AA2000000000000000000003 /* Gemma4Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gemma4Config.swift; sourceTree = "<group>"; };
@@ -62,7 +62,6 @@
 		AA2000000000000000000009 /* MLXTokenizersLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXTokenizersLoader.swift; sourceTree = "<group>"; };
 		AA2000000000000000000018 /* Gemma4VisionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gemma4VisionModel.swift; sourceTree = "<group>"; };
 		AA2000000000000000000019 /* Gemma4Processor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gemma4Processor.swift; sourceTree = "<group>"; };
-		A1AB7F250BEEFF938318AA75 /* Pods-PhoneClaw.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PhoneClaw.debug.xcconfig"; path = "Target Support Files/Pods-PhoneClaw/Pods-PhoneClaw.debug.xcconfig"; sourceTree = "<group>"; };
 		C1A2B3D4E5F607182930A1B3 /* SkillLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillLoader.swift; sourceTree = "<group>"; };
 		C2B3C4D5E6F718293041B2C4 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		C3C4D5E6F7081A2B3C52D3E5 /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
@@ -132,6 +131,22 @@
 			path = Skills;
 			sourceTree = "<group>";
 		};
+		AA3000000000000000000001 /* MLX */ = {
+			isa = PBXGroup;
+			children = (
+				AA2000000000000000000003 /* Gemma4Config.swift */,
+				AA2000000000000000000004 /* Gemma4LanguageModel.swift */,
+				AA2000000000000000000005 /* Gemma4Model.swift */,
+				AA2000000000000000000006 /* Gemma4Registration.swift */,
+				AA2000000000000000000007 /* Gemma4RoPE.swift */,
+				AA2000000000000000000008 /* Gemma4TextModel.swift */,
+				AA2000000000000000000018 /* Gemma4VisionModel.swift */,
+				AA2000000000000000000019 /* Gemma4Processor.swift */,
+				AA2000000000000000000009 /* MLXTokenizersLoader.swift */,
+			);
+			path = MLX;
+			sourceTree = "<group>";
+		};
 		AC5E0AA2711EA01E891DE3A7 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -149,22 +164,6 @@
 				2E7C06DA449D1395217A42D5 /* PromptBuilder.swift */,
 			);
 			path = LLM;
-			sourceTree = "<group>";
-		};
-		AA3000000000000000000001 /* MLX */ = {
-			isa = PBXGroup;
-			children = (
-				AA2000000000000000000003 /* Gemma4Config.swift */,
-				AA2000000000000000000004 /* Gemma4LanguageModel.swift */,
-				AA2000000000000000000005 /* Gemma4Model.swift */,
-				AA2000000000000000000006 /* Gemma4Registration.swift */,
-				AA2000000000000000000007 /* Gemma4RoPE.swift */,
-				AA2000000000000000000008 /* Gemma4TextModel.swift */,
-				AA2000000000000000000018 /* Gemma4VisionModel.swift */,
-				AA2000000000000000000019 /* Gemma4Processor.swift */,
-				AA2000000000000000000009 /* MLXTokenizersLoader.swift */,
-			);
-			path = MLX;
 			sourceTree = "<group>";
 		};
 		D21E6B56B839A63857912FE0 /* PhoneClaw */ = {
@@ -259,15 +258,15 @@
 			);
 			mainGroup = 4A876E909BCB4E1CAF5C50F5;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA4000000000000000000001 /* XCLocalSwiftPackageReference "Packages/InferenceKit" */,
+				AA4000000000000000000002 /* XCRemoteSwiftPackageReference "mlx-swift" */,
+				AA4000000000000000000003 /* XCRemoteSwiftPackageReference "swift-tokenizers" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AC5E0AA2711EA01E891DE3A7 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			packageReferences = (
-				AA4000000000000000000001 /* XCLocalSwiftPackageReference "mlx-swift-lm" */,
-				AA4000000000000000000002 /* XCRemoteSwiftPackageReference "mlx-swift" */,
-				AA4000000000000000000003 /* XCRemoteSwiftPackageReference "swift-tokenizers" */,
-			);
 			targets = (
 				DC4DB8CD35E6335C6F8AC3D7 /* PhoneClaw */,
 			);
@@ -494,7 +493,7 @@
 				CODE_SIGN_ENTITLEMENTS = PhoneClaw.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = ZP4QNJ35TH;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -515,7 +514,7 @@
 				CODE_SIGN_ENTITLEMENTS = PhoneClaw.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = ZP4QNJ35TH;
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -552,9 +551,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AA4000000000000000000001 /* XCLocalSwiftPackageReference "InferenceKit" */ = {
+		AA4000000000000000000001 /* XCLocalSwiftPackageReference "Packages/InferenceKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "Packages/InferenceKit";
+			relativePath = Packages/InferenceKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -595,23 +594,23 @@
 		};
 		AA5000000000000000000004 /* MLXLMCommon */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA4000000000000000000001 /* XCLocalSwiftPackageReference "_mlx-swift-lm" */;
+			package = AA4000000000000000000001 /* XCLocalSwiftPackageReference "Packages/InferenceKit" */;
 			productName = MLXLMCommon;
-		};
-		AA5000000000000000000007 /* MLXLLM */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = AA4000000000000000000001 /* XCLocalSwiftPackageReference "_mlx-swift-lm" */;
-			productName = MLXLLM;
 		};
 		AA5000000000000000000005 /* MLXVLM */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA4000000000000000000001 /* XCLocalSwiftPackageReference "_mlx-swift-lm" */;
+			package = AA4000000000000000000001 /* XCLocalSwiftPackageReference "Packages/InferenceKit" */;
 			productName = MLXVLM;
 		};
 		AA5000000000000000000006 /* Tokenizers */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AA4000000000000000000003 /* XCRemoteSwiftPackageReference "swift-tokenizers" */;
 			productName = Tokenizers;
+		};
+		AA5000000000000000000007 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA4000000000000000000001 /* XCLocalSwiftPackageReference "Packages/InferenceKit" */;
+			productName = MLXLLM;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
