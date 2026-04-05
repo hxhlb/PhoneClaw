@@ -1,0 +1,5 @@
+module CLiteRtLm {
+    header "include/engine.h"
+    link "LiteRtLmEngine"
+    export *
+}

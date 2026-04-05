@@ -1,0 +1,59 @@
+# ─── Models（大文件，不入库）───────────────────────────────────────
+Models/
+*.litertlm
+*.litertlm.xnnpack_cache
+*.safetensors
+*.gguf
+
+# ─── CocoaPods ────────────────────────────────────────────────────
+Pods/
+# Podfile.lock 保留：便于多人复现环境
+# *.xcworkspace 由 CocoaPods 生成，可选保留；这里保留
+
+# ─── Xcode ────────────────────────────────────────────────────────
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ─── Swift Package Manager ────────────────────────────────────────
+.build/
+*.resolved
+
+# ─── LiteRT-LM 子模块（大二进制）──────────────────────────────────
+LiteRT-LM/build_ios/
+LiteRT-LM/build/
+_mediapipe-samples/
+_mlx-swift-lm/
+
+# ─── macOS 杂项 ───────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+*.swo
+*~
+
+# ─── 环境 / 密钥 ──────────────────────────────────────────────────
+.env
+*.pem
+*.p12
+*.mobileprovision
+
+# ─── 编辑器 ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# ─── 构建产物 / 二进制库 ──────────────────────────────────────────
+*.profraw
+*.dylib
+*.a
+*.o
