@@ -14,29 +14,19 @@ A local AI Agent for iPhone. Offline. Private. Native.
 
 PhoneClaw is a local AI Agent that runs entirely on your iPhone. No internet connection. No data uploads. No cloud dependency.
 
-PhoneClaw uses Gemma 4 to run inference entirely on-device. It does not depend on any cloud service and does not upload your conversations.
+## Core Features
 
-## Current Capabilities
+**Image Understanding (Multimodal)**: Take a photo or pick one from your library, then ask questions directly. Identify objects, read charts, describe scenes — all inference happens on your device, and your photos never leave your phone.
 
-| Capability | Description |
-|------------|-------------|
-| Image Understanding | Ask questions about photos or images directly, multimodal input |
-| Clipboard | Read and write the system clipboard |
-| Device Info | Query device name, OS version, memory, and more |
-| Text Tools | Hash calculation, text reversal, and more |
-| Calendar | Create calendar events |
-| Reminders | Create reminders with push notifications at the due time |
-| Contacts | Create or update contacts, deduped by phone number |
+**Calendar / Reminders / Contacts**: Create calendar events, set reminders that fire on time with a push notification, and save or update contacts — all through natural language. Every write operation stays local. Contacts are automatically deduped by phone number.
 
-## Features
+**Clipboard & Device Info**: Read and write the system clipboard, query device name, OS version, and available memory. Useful as a data relay in multi-step tasks.
 
-- Fully offline, no network by default
-- Image input support (multimodal)
-- File-driven Skill system — add new capabilities without rewriting the Agent
-- Multi-round tool calling
-- Supports shell-only app install, then on-device E2B / E4B download
-- Built-in permission management, system prompt editor, and model switcher
-- Dynamic history trimming and GPU cache management for iPhone memory limits
+**File-Driven Skill System**: Each capability is defined by a single Markdown file (SKILL.md). Adding or modifying a skill requires no recompilation. Skills are language-agnostic — anyone can write and share them.
+
+**100% Offline & Private**: All inference runs on the local GPU. No network connections are made by default. Your conversations, images, and personal data are never uploaded or routed through any third-party server.
+
+**Flexible Model Management**: Supports Gemma 4 E2B and E4B. Download models directly on your iPhone, or bundle them into the app at build time. Includes a built-in model switcher, system prompt editor, and automatic history trimming for iPhone memory constraints.
 
 ## Requirements
 
