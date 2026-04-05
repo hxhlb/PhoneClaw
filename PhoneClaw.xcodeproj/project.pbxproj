@@ -552,9 +552,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AA4000000000000000000001 /* XCLocalSwiftPackageReference "mlx-swift-lm" */ = {
+		AA4000000000000000000001 /* XCLocalSwiftPackageReference "InferenceKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "mlx-swift-lm";
+			relativePath = "Packages/InferenceKit";
 		};
 /* End XCLocalSwiftPackageReference section */
 
