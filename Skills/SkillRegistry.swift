@@ -128,6 +128,7 @@ class SkillRegistry {
         registerBuiltIn(id: "reminders")
         registerBuiltIn(id: "contacts")
         registerBuiltIn(id: "translate")
+        registerBuiltIn(id: "health")
 
         validateRegisteredSkills()
     }

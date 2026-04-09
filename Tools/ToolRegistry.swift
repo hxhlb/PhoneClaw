@@ -183,5 +183,6 @@ class ToolRegistry {
         CalendarTools.register(into: self)
         RemindersTools.register(into: self)
         ContactsTools.register(into: self)
+        HealthTools.register(into: self)
     }
 }
