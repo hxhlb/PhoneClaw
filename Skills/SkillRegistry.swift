@@ -115,20 +115,20 @@ class SkillRegistry {
         }
     }
 
-    /// Built-in skill 注册列表。对称 ToolRegistry.registerDefaultTools 的模式。
+    /// Built-in skill 注册列表。对称 ToolRegistry.registerBuiltInTools 的模式:
+    /// 显式声明要启用什么, 数据在 SKILL.md, 这里只是"加这一行让它被加载"。
     ///
     /// 加新内置 skill 的流程:
     ///   1. 在 `Skills/Library/<new-id>/` 创建 SKILL.md
-    ///   2. 在 Xcode 里把 Library/ 更新后的文件加到 PhoneClaw target (bundle)
+    ///   2. 在 Xcode 里把 Library/<new-id>/ 加进 PhoneClaw target (bundle)
     ///   3. 在下面加一行 `registerBuiltIn(id: "<new-id>")`
     private func registerBuiltInSkills() {
         registerBuiltIn(id: "clipboard")
-        registerBuiltIn(id: "device")
-        registerBuiltIn(id: "text")
         registerBuiltIn(id: "calendar")
         registerBuiltIn(id: "reminders")
         registerBuiltIn(id: "contacts")
         registerBuiltIn(id: "translate")
+        registerBuiltIn(id: "health")
 
         validateRegisteredSkills()
     }

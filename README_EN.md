@@ -27,6 +27,16 @@ A local AI Agent for iPhone. Offline. Private. Native.
 
 PhoneClaw is a local AI Agent that runs entirely on your iPhone. No internet connection. No data uploads. No cloud dependency.
 
+## 2026-04-10 Update
+
+- Added Health Skill: read HealthKit data including today's/yesterday's steps, weekly step trends, walking distance, active calories, resting heart rate, last night's sleep, weekly sleep summary, and recent workouts — 9 tools total, all data processed locally and never uploaded
+- Improved multi-turn response speed: cross-turn KV cache reuse reduces time-to-first-token by ~3.5x for consecutive queries within the same skill
+- The 9 health tools are automatically selected by the model based on user intent — no need to specify a query type
+
+## 2026-04-09 Update
+
+- Ongoing framework and infrastructure work. Major improvement to the multi-turn agent framework: the Router now correctly preserves skill context across turns, and even small models can reliably complete multi-turn tool calls.
+
 ## 2026-04-08 Update
 
 - Model downloads now include a ModelScope mirror, so users in mainland China can download Gemma 4 without a VPN
@@ -75,14 +85,16 @@ PhoneClaw is a local AI Agent that runs entirely on your iPhone. No internet con
 
 > "Copy that text to the clipboard"
 
-**Device Info**: Query device name, OS version, available memory, processor count, and more.
+**Translate**: Translate between any pair of languages, with automatic source detection.
 
-> "What's the device info for this phone?"
+> "Translate that last line into Japanese"
 
-**Text Tools**: Hash calculation, text reversal, and other basic text utilities.
+**Health Data**: Read HealthKit steps, distance, calories, heart rate, sleep, and workout records. All data stays on-device.
 
-> "Calculate the MD5 of this text"
-
+> "How many steps did I take today?"
+> "How did I sleep last night?"
+> "How are my steps this week?"
+> "What's my resting heart rate?"
 
 ## Requirements
 
@@ -95,33 +107,27 @@ Model recommendation:
 
 | Model | Use case |
 |-------|----------|
-| Gemma 4 E2B | More stable, recommended for general distribution, A16 and above |
-| Gemma 4 E4B | Stronger output, higher memory usage, recommended for iPhone 15 Pro and above |
+| Gemma 4 E2B | Lightweight: chat / translation / single-turn queries, A16 and above |
+| Gemma 4 E4B | Full-featured: multi-turn tool conversations and complex agent flows, iPhone 15 Pro and above |
 
 ## Quick Start
 
-If you are installing from source, you will need macOS + Xcode 16, iOS 17+, CocoaPods, a real device, and an Apple ID.
+Building from source requires macOS + Xcode 16, iOS 17+, CocoaPods, a real device, and an Apple ID.
 
-### 1. Direct install (no Mac required)
-
-- Download the latest shell `IPA` from [GitHub Releases](https://github.com/kellyvv/PhoneClaw/releases)
-- Sign and install it with your own signing method
-- After the first launch, open `Model Settings` and download E2B or E4B on the phone
-
-### 2. Clone the repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/kellyvv/phoneclaw.git
 cd phoneclaw
 ```
 
-### 3. Install dependencies
+### 2. Install dependencies
 
 ```bash
 pod install
 ```
 
-### 4. Optional: pre-download a model locally
+### 3. Optional: pre-download a model locally
 
 The default recommended flow is now:
 
@@ -177,7 +183,7 @@ Models/
 > Approximate repository sizes on Hugging Face: E2B ~3.58 GB, E4B ~5.22 GB.
 > You can also download manually from the model page and place files in the correct directory.
 
-### 5. Open the workspace
+### 4. Open the workspace
 
 ```bash
 open PhoneClaw.xcworkspace
@@ -185,7 +191,7 @@ open PhoneClaw.xcworkspace
 
 > Do not open `.xcodeproj`. Always open `.xcworkspace`.
 
-### 6. Configure signing and run
+### 5. Configure signing and run
 
 1. In Xcode, select the PhoneClaw target
 2. Open Signing & Capabilities
@@ -206,9 +212,9 @@ After opening the app:
 Download a model first, then enable Calendar, Reminders, and Contacts in the permissions page, then try:
 
 ```
-What is this device's information?
 Remind me tonight at 8 to send the file
 Save Wang's phone number 13812345678
+Translate that last line into English
 ```
 
 ## Default Install Flow and Model Bundling

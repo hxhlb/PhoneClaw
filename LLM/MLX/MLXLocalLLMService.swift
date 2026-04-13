@@ -113,6 +113,15 @@ public class MLXLocalLLMService: LLMEngine {
     var lifecycleObserverTokens: [NSObjectProtocol] = []
     var audioCapabilityEnabled = false
 
+    // MARK: - KV Cache Reuse state
+    //
+    // Cross-turn prompt prefix caching. Implementation in
+    // MLXLocalLLMService+KVReuse.swift. Flag is public so harness/tests can
+    // flip it off to verify cache-on vs cache-off parity on routing + tool_call.
+    public var kvReuseEnabled: Bool = true
+    var activeCache: [MLXLMCommon.KVCache]?
+    var cachedPromptTokens: [Int] = []
+
     /// Local path to the model directory
     var modelPath: URL {
         ModelPaths.resolve(for: selectedModel)
@@ -394,15 +403,9 @@ public class MLXLocalLLMService: LLMEngine {
 
 
     private func currentMultimodalFallbackRecommendation() -> String {
-        let currentModel = loadedModel ?? selectedModel
-        if let lighterID = currentModel.runtimeProfile.lighterAlternativeID,
-           let lighter = Self.availableModels.first(where: { $0.id == lighterID }) {
-            if isModelAvailable(lighter) {
-                return "如仍失败，可手动切换到 \(lighter.displayName) 处理图片或音频。"
-            }
-            return "如仍失败，可先下载并手动切换到 \(lighter.displayName)。"
-        }
-        return "如仍失败，请改用更轻量的模型处理图片或音频。"
+        // 默认用户只装一个模型, 不建议"切换到另一个模型" (他可能根本没有)。
+        // 给可执行的自救步骤: 关后台、减附件数量/尺寸。
+        return "可尝试: 关闭后台应用释放内存; 减少附件数量; 或把图片缩小再试。"
     }
 
 
@@ -434,12 +437,19 @@ public class MLXLocalLLMService: LLMEngine {
                 // and without clearing, residual cache + new activations
                 // exceed the 6GB jetsam limit on iPhone.
                 //
-                // NOTE: No prompt prefix caching is implemented. Every generateStream call
-                // rebuilds the full KV cache from scratch. Prompt prefix stability does NOT
-                // improve inference latency in the current architecture. Any future proposal
-                // to restructure prompts for "cache hit rate" should first implement actual
-                // prefix caching before assuming performance gains.
+                // NOTE: clearCache() frees Metal transient buffers but does NOT
+                // touch KVCache tensors (those are MLXArray holdings on the
+                // language model path, managed by `activeCache`). Prompt prefix
+                // caching IS implemented — see MLXLocalLLMService+KVReuse.swift
+                // and `kvReuseEnabled`.
                 MLX.GPU.clearCache()
+
+                // Multimodal invalidates reuse cache: image/audio tokens get
+                // replaced with embeddings downstream, so the cached text-only
+                // prefix is not semantically compatible with the new turn.
+                if isMultimodal {
+                    self.invalidateKVReuseCache()
+                }
 
                 let currentModel = self.loadedModel ?? self.selectedModel
                 let profile = currentModel.runtimeProfile
@@ -506,7 +516,7 @@ public class MLXLocalLLMService: LLMEngine {
 
                 do {
                     try await self.ensureForegroundGPUExecution()
-                    _ = try await container.perform { context in
+                    _ = try await container.perform { (context) -> Void in
                         try await self.ensureForegroundGPUExecution()
                         if isMultimodal {
                             print("[VLM] multimodal budget — maxOutputTokens=\(resolvedMaxOutputTokens)")
@@ -540,16 +550,49 @@ public class MLXLocalLLMService: LLMEngine {
                         // 加上 4.6 GB 已驻留 weights+KV 会撞 jetsam。
                         // 这是框架层修复，与 prompt 内容、skill 数量、SKILL.md
                         // 格式完全无关。
-                        return try MLXLMCommon.generate(
-                            input: preparedInput,
-                            parameters: .init(
-                                maxTokens: resolvedMaxOutputTokens,
-                                temperature: samplingTemperature,
-                                topP: samplingTopP,
-                                topK: samplingTopK,
-                                prefillStepSize: 256
-                            ),
-                            context: context
+                        let generateParams = GenerateParameters(
+                            maxTokens: resolvedMaxOutputTokens,
+                            temperature: samplingTemperature,
+                            topP: samplingTopP,
+                            topK: samplingTopK,
+                            prefillStepSize: 256
+                        )
+
+                        // Plan KV reuse (text-only). On multimodal / disabled /
+                        // first call, plan falls through to a fresh cache and
+                        // passes the full input — equivalent to the old path
+                        // except the cache is now owned by the service and
+                        // reused on the next call.
+                        let reusePlan = self.planKVReuse(
+                            preparedInput: preparedInput,
+                            model: context.model,
+                            parameters: generateParams,
+                            isMultimodal: isMultimodal
+                        )
+
+                        let inputForGenerate: LMInput
+                        let cacheForGenerate: [KVCache]?
+                        if let plan = reusePlan {
+                            inputForGenerate = plan.deltaInput
+                            cacheForGenerate = plan.cache
+                        } else {
+                            inputForGenerate = preparedInput
+                            cacheForGenerate = nil
+                        }
+
+                        // Construct iterator with our cache (or nil) and feed
+                        // the closure-based generate, matching the original
+                        // code path except cache is now plumbed through.
+                        let iterator = try TokenIterator(
+                            input: inputForGenerate,
+                            model: context.model,
+                            cache: cacheForGenerate,
+                            parameters: generateParams
+                        )
+                        _ = MLXLMCommon.generate(
+                            input: inputForGenerate,
+                            context: context,
+                            iterator: iterator
                         ) { tokens in
                             if self.cancelled || !self.isForegroundGPUAllowed() {
                                 return .stop
@@ -560,19 +603,25 @@ public class MLXLocalLLMService: LLMEngine {
                                 firstTokenTime = (CFAbsoluteTimeGetCurrent() - genStart) * 1000
                             }
 
-                            // Stream the latest token
                             if let lastToken = tokens.last {
                                 let text = context.tokenizer.decode(tokenIds: [lastToken])
                                 continuation.yield(text)
                             }
 
-                            // Multimodal path uses a tighter generation budget on iPhone.
-                            // If we hit the cap, signal truncation so the caller can append a notice.
                             if tokens.count >= resolvedMaxOutputTokens {
                                 hitTokenCap = true
                                 return .stop
                             }
                             return .more
+                        }
+
+                        // Commit or invalidate based on outcome.
+                        if let plan = reusePlan {
+                            if self.cancelled {
+                                self.invalidateKVReuseCache()
+                            } else {
+                                self.commitKVReuse(plan: plan)
+                            }
                         }
                     }
 
@@ -606,6 +655,7 @@ public class MLXLocalLLMService: LLMEngine {
                     }
                     continuation.finish()
                 } catch {
+                    self.invalidateKVReuseCache()
                     continuation.finish(throwing: error)
                 }
 
@@ -675,6 +725,7 @@ public class MLXLocalLLMService: LLMEngine {
         cancelled = false
         stats = LLMStats()
         stats.backend = "mlx-gpu"
+        invalidateKVReuseCache()
         MLX.GPU.clearCache()
         statusMessage = "模型已卸载"
         print("[MLX] Model unloaded")

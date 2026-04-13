@@ -289,34 +289,32 @@ struct ContentView: View {
     }
 
     // MARK: - Skill 快捷标签
-
-    /// chip 显示用的简写标签 (UI 表现层选择, 不影响核心数据)。
-    /// key = SkillEntry.id, value = 在 chip pill 上显示的短动作短语。
-    /// 没在表里的 skill 会 fallback 到 skill.displayName。
-    /// chip 实际发送的 prompt 仍然是 skill.samplePrompt (完整、自包含)。
-    private static let chipShortLabels: [String: String] = [
-        "calendar":  "帮我创建日程",
-        "contacts":  "帮我保存联系人",
-        "reminders": "帮我创建提醒事项",
-        "device":    "查询我手机信息",
-    ]
-
-    /// chip 隐藏名单 (UI 表现层选择): 这些 skill 不会出现在欢迎页 chip 列表里,
-    /// 但仍然在引擎里启用、可被用户手动输入触发。
-    private static let chipHiddenSkillIds: Set<String> = ["text"]
+    //
+    // Chip 完全由 SKILL.md 数据驱动, 所见即所发:
+    //   - 显示文字 = skill.chipPrompt (来自 SKILL.md `chip_prompt` 字段)
+    //   - 点击发送 = 同上 (chip 上看到什么就发什么, 没有脱节)
+    //   - 图标 = skill.icon (来自 SKILL.md `icon` 字段)
+    //
+    // 没声明 chip_prompt 的 skill 不会出现在 chip 列表 — 这是"这个 skill
+    // 不想当快捷按钮"的自然表达, 不需要额外的隐藏名单。
+    //
+    // 框架不硬编任何具体 skill 名。加新 skill 只要在 SKILL.md 写一行
+    // `chip_prompt: "..."`, UI 自动显示, 不写就自动不显示。
 
     private var skillChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(engine.enabledSkillInfos.filter { !Self.chipHiddenSkillIds.contains($0.name) }, id: \.name) { skill in
-                    let label = Self.chipShortLabels[skill.name] ?? skill.displayName
+                ForEach(engine.enabledSkillInfos.compactMap { skill -> (SkillInfo, String)? in
+                    guard let prompt = skill.chipPrompt, !prompt.isEmpty else { return nil }
+                    return (skill, prompt)
+                }, id: \.0.name) { skill, chipPrompt in
                     Button {
-                        inputText = skill.samplePrompt
+                        inputText = chipPrompt
                         Task { await send() }
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: skill.icon).font(.system(size: 11))
-                            Text(label).font(.system(size: 12, weight: .medium))
+                            Text(chipPrompt).font(.system(size: 12, weight: .medium))
                         }
                         .foregroundStyle(Theme.textSecondary)
                         .padding(.horizontal, 12)

@@ -180,10 +180,9 @@ class ToolRegistry {
 
     private func registerBuiltInTools() {
         ClipboardTools.register(into: self)
-        DeviceTools.register(into: self)
-        TextTools.register(into: self)
         CalendarTools.register(into: self)
         RemindersTools.register(into: self)
         ContactsTools.register(into: self)
+        HealthTools.register(into: self)
     }
 }

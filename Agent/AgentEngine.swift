@@ -97,7 +97,8 @@ class AgentEngine {
         skillEntries.filter(\.isEnabled).map {
             SkillInfo(name: $0.id, description: $0.description,
                      displayName: $0.name, icon: $0.icon,
-                     type: $0.type, samplePrompt: $0.samplePrompt)
+                     type: $0.type, samplePrompt: $0.samplePrompt,
+                     chipPrompt: $0.chipPrompt)
         }
     }
 
@@ -333,7 +334,19 @@ class AgentEngine {
         )
         log("[Metric] route=\(routedPath) skills=\(matchedSkillIdsForTurn.count) model=\(llm.selectedModel.id) multimodal=\(requiresMultimodal)")
 
-        messages.append(ChatMessage(role: .assistant, content: "▍"))
+        // Tag 这条 assistant placeholder 的 skillName, 让 sticky routing 在
+        // 下一轮追问时能识别上下文 (即使本轮 LLM 没调 tool 只是澄清).
+        //
+        // 只对 type: device 的 skill 打 tag — content skill (如 translate)
+        // 是一问一答的纯变换, 它的 assistant reply 代表"已完成", 不应该让
+        // 下一轮闲聊被 sticky 粘回去翻译。框架在这里按 skill metadata 决定,
+        // 不硬编具体 skill 名, 也不感知模型。
+        let stickyEligibleSkillID: String? = {
+            guard let id = matchedSkillIdsForTurn.first,
+                  let def = skillRegistry.getDefinition(id) else { return nil }
+            return def.metadata.type == .device ? id : nil
+        }()
+        messages.append(ChatMessage(role: .assistant, content: "▍", skillName: stickyEligibleSkillID))
         let msgIndex = messages.count - 1
 
         if requiresMultimodal {
@@ -377,6 +390,20 @@ class AgentEngine {
             return
         }
 
+        // Router 确定性匹配到的 skill: 直接预加载 body + 工具列表,
+        // 让模型在 round 1 就看到 schema, 跳过 load_skill 往返。对小模型
+        // (E2B/E4B) 效果显著 — 避免它们在"要不要 load_skill"这种主观判断上翻车。
+        let preloadedSkills: [PromptBuilder.PreloadedSkill] = matchedSkillIdsForTurn.compactMap { id in
+            guard let body = skillRegistry.loadBody(skillId: id),
+                  let def = skillRegistry.getDefinition(id) else { return nil }
+            return PromptBuilder.PreloadedSkill(
+                id: id,
+                displayName: def.metadata.name,
+                body: body,
+                allowedTools: def.metadata.allowedTools
+            )
+        }
+
         let prompt: String
         if shouldUseFullAgentPrompt {
             prompt = PromptBuilder.build(
@@ -387,7 +414,8 @@ class AgentEngine {
                 systemPrompt: config.systemPrompt,
                 enableThinking: config.enableThinking,
                 historyDepth: historyDepth,
-                showListSkillsHint: matchedSkillIdsForTurn.isEmpty
+                showListSkillsHint: matchedSkillIdsForTurn.isEmpty,
+                preloadedSkills: preloadedSkills
             )
         } else {
             prompt = PromptBuilder.buildLightweightTextPrompt(

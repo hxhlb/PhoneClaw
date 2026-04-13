@@ -24,6 +24,9 @@ struct SkillEntry: Identifiable {
     var icon: String
     var type: SkillType
     var samplePrompt: String
+    /// 欢迎页快捷 chip 文案 = 所见即所发。
+    /// 来源 SKILL.md `chip_prompt` 字段。不声明的 skill 不会出现在 chip 列表。
+    var chipPrompt: String?
     var tools: [ToolInfo] = []
     var isEnabled: Bool = true
     var filePath: URL?      // SKILL.md 路径（用于编辑）
@@ -36,6 +39,7 @@ struct SkillEntry: Identifiable {
         self.icon = def.metadata.icon
         self.type = def.metadata.type
         self.samplePrompt = def.metadata.examples.first?.query ?? ""
+        self.chipPrompt = def.metadata.chipPrompt?.isEmpty == true ? nil : def.metadata.chipPrompt
         self.isEnabled = def.isEnabled
         self.filePath = def.filePath
         self.tools = def.metadata.allowedTools.compactMap { toolName in
@@ -54,4 +58,5 @@ struct SkillInfo {
     var icon: String = "wrench"
     var type: SkillType = .device
     var samplePrompt: String = ""
+    var chipPrompt: String? = nil
 }
