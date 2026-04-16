@@ -34,7 +34,7 @@ struct LiveModeView: View {
 
     private var headline: String {
         if liveEngine.statusMessage == "正在准备 Live" {
-            return "正在准备"
+            return "正在加载"
         }
         switch liveEngine.state {
         case .idle: return "LIVE 未启动"
@@ -163,28 +163,34 @@ struct LiveModeView: View {
     // MARK: - 状态胶囊
 
     private var statusCapsule: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Image(systemName: liveIconName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(accentColor)
                 .contentTransition(.symbolEffect(.replace))
 
             Text(headline)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                // SF Pro default design + condensed width + tracking = 科技/现代感
+                .font(.system(size: 18, weight: .bold))
+                .fontDesign(.default)
+                .fontWidth(.condensed)
+                .tracking(1.5)
                 .foregroundStyle(.white)
                 .contentTransition(.numericText())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(
             Group {
                 if liveEngine.state == .speaking || liveEngine.state == .processing {
                     Text("可以直接打断")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .font(.system(size: 11, weight: .medium))
+                        .fontWidth(.condensed)
+                        .tracking(0.5)
                         .foregroundStyle(.white.opacity(0.55))
                         .transition(.opacity)
-                        .offset(y: 24)
+                        .offset(y: 28)
                 }
             }
         )
