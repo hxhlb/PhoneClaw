@@ -145,9 +145,130 @@ enum ClipboardTools {
         )
     }
 }
+#elseif canImport(AppKit)
+import AppKit
+
+// macOS: NSPasteboard 实现, 跟 iOS UIPasteboard 行为对齐 — 让 CLI harness
+// 真的读写系统剪贴板 (写到 macOS 系统剪贴板 / 从系统剪贴板读), 而不是 mock 内存.
+// CLI harness 跑 clipboard scenario 现在跟 iOS 真机数据流一致.
+
+enum ClipboardTools {
+
+    static func register(into registry: ToolRegistry) {
+
+        // ── clipboard-read ──
+        registry.register(RegisteredTool(
+            name: "clipboard-read",
+            description: "读取剪贴板当前内容",
+            parameters: "无",
+            isParameterless: true,
+            skipFollowUp: true
+        ) { _ in
+            let snapshot = await MainActor.run { () -> [String: Any] in
+                let pb = NSPasteboard.general
+                let types = pb.types ?? []
+
+                if types.isEmpty {
+                    return ["kind": "empty"]
+                }
+
+                if types.contains(.tiff) || types.contains(.png) {
+                    return ["kind": "image", "item_count": pb.pasteboardItems?.count ?? 1]
+                }
+
+                if types.contains(.URL),
+                   let urlString = pb.string(forType: .URL),
+                   let preview = textPreview(from: urlString, maxCharacters: 500) {
+                    return [
+                        "kind": "url",
+                        "content": preview.preview,
+                        "truncated": preview.truncated
+                    ]
+                }
+
+                if let raw = pb.string(forType: .string),
+                   let preview = textPreview(from: raw, maxCharacters: 500) {
+                    return [
+                        "kind": "text",
+                        "content": preview.preview,
+                        "truncated": preview.truncated
+                    ]
+                }
+
+                return ["kind": "unsupported", "item_count": pb.pasteboardItems?.count ?? 1]
+            }
+
+            switch snapshot["kind"] as? String {
+            case "text":
+                let preview = snapshot["content"] as? String ?? ""
+                let truncated = snapshot["truncated"] as? Bool ?? false
+                let suffix = truncated ? "（内容较长，已截断显示）" : ""
+                return successPayload(
+                    result: "剪贴板当前文本内容是：\(preview)\(suffix)",
+                    extras: ["type": "text", "content": preview, "truncated": truncated]
+                )
+            case "url":
+                let preview = snapshot["content"] as? String ?? ""
+                let truncated = snapshot["truncated"] as? Bool ?? false
+                let suffix = truncated ? "（内容较长，已截断显示）" : ""
+                return successPayload(
+                    result: "剪贴板当前是链接：\(preview)\(suffix)",
+                    extras: ["type": "url", "content": preview, "truncated": truncated]
+                )
+            case "image":
+                let itemCount = snapshot["item_count"] as? Int ?? 1
+                return successPayload(
+                    result: "剪贴板当前是图片内容。为避免额外内存占用，暂不直接解码图片。",
+                    extras: ["type": "image", "item_count": itemCount]
+                )
+            case "unsupported":
+                let itemCount = snapshot["item_count"] as? Int ?? 1
+                return successPayload(
+                    result: "剪贴板当前包含 \(itemCount) 项非文本内容，暂不直接读取。",
+                    extras: ["type": "unsupported", "item_count": itemCount]
+                )
+            default:
+                return failurePayload(error: "剪贴板为空")
+            }
+        })
+
+        // ── clipboard-write ──
+        registry.register(RegisteredTool(
+            name: "clipboard-write",
+            description: "将文本写入剪贴板",
+            parameters: "text: 要复制的文本内容",
+            requiredParameters: ["text"],
+            skipFollowUp: true
+        ) { args in
+            guard let text = args["text"] as? String else {
+                return failurePayload(error: "缺少 text 参数")
+            }
+            await MainActor.run {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(text, forType: .string)
+            }
+            return successPayload(
+                result: "已写入剪贴板，共 \(text.count) 个字符。",
+                extras: ["copied_length": text.count]
+            )
+        })
+    }
+
+    private static func textPreview(
+        from text: String,
+        maxCharacters: Int = 500
+    ) -> (preview: String, truncated: Bool)? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let endIndex = trimmed.index(
+            trimmed.startIndex, offsetBy: maxCharacters, limitedBy: trimmed.endIndex
+        ) ?? trimmed.endIndex
+        return (preview: String(trimmed[..<endIndex]), truncated: endIndex < trimmed.endIndex)
+    }
+}
 #else
-// macOS CLI: UIPasteboard iOS-only, 剪贴板 Skill 不适用. 提供 no-op stub
-// 让 ToolRegistry.registerBuiltInTools() 调用点编译通过 (整个 skill 静默跳过).
+// 既无 UIKit 也无 AppKit (理论上不会发生) — no-op stub
 enum ClipboardTools {
     static func register(into registry: ToolRegistry) {}
 }

@@ -110,12 +110,39 @@ func iso8601String(from date: Date) -> String {
 // 任何一步成功就返回, 都失败才返回 nil → tool 走 failurePayload → 模型问用户.
 
 func parseToolDateTime(_ raw: String, anchor: Date = Date()) -> Date? {
+    parseToolDateTimeDetailed(raw, anchor: anchor)?.date
+}
+
+/// 比 parseToolDateTime 更细 — 同时返回"用户是否给了具体时间".
+///
+/// 信号: NSDataDetector 对纯日期输入 (如 "今天" / "明天" / "5月3日") 默认补正午 12:00:00;
+/// 对带时间的输入会得出真实小时. 结合 raw 长度 (短串更可能是纯日期) 可以判别.
+///
+/// 这是通用 NLP-风格的日期完整性检测, 不感知具体 SKILL — Calendar / Reminders /
+/// 任何要求"用户必须给具体时间"的 tool 都能复用. 不是 SKILL 业务规则.
+func parseToolDateTimeDetailed(_ raw: String, anchor: Date = Date()) -> (date: Date, hasExplicitTime: Bool)? {
     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    if let date = parseISO8601Date(trimmed) { return date }
-    if let date = parseDateTimeWithDataDetector(trimmed, anchor: anchor) { return date }
-    return nil
+    // ISO 8601 严格格式必含时间 — 视为 explicit
+    if let date = parseISO8601Date(trimmed) {
+        return (date, hasExplicitTime: true)
+    }
+
+    guard let date = parseDateTimeWithDataDetector(trimmed, anchor: anchor) else {
+        return nil
+    }
+
+    // 启发式: 解析后是 12:00:00 整 + 输入 ≤ 4 字 → 大概率 NSDataDetector 给纯日期
+    // 输入补的默认正午 ("今天"/"明天"/"后天"/"5月3日" 都 ≤4 字, 解析后都 12:00).
+    // 用户真说了"中午十二点" 是 5 字, 不会被这个启发式拦.
+    var calendar = Calendar.current
+    calendar.timeZone = .current
+    let comps = calendar.dateComponents([.hour, .minute, .second], from: date)
+    let isExactNoon = comps.hour == 12 && comps.minute == 0 && comps.second == 0
+    let isShortInput = trimmed.count <= 4
+    let hasExplicitTime = !(isExactNoon && isShortInput)
+    return (date, hasExplicitTime: hasExplicitTime)
 }
 
 private func parseDateTimeWithDataDetector(_ raw: String, anchor: Date) -> Date? {

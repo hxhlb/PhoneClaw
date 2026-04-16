@@ -26,6 +26,23 @@ enum ContactsTools {
             let email = (args["email"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let notes = (args["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
+            #if !os(iOS)
+            // Mac mock: 跨工具内存 store, harness 测端到端 SKILL flow.
+            let result = MacContactsMock.upsert(name: name, phone: phone, company: company, email: email, notes: notes)
+            let actionText = result.action == "updated" ? "已更新" : "已创建"
+            return successPayload(
+                result: "\(actionText)联系人\u{201C}\(name)\u{201D}。",
+                extras: [
+                    "action": result.action,
+                    "name": result.entry.name,
+                    "phone": result.entry.phone,
+                    "company": result.entry.company,
+                    "email": result.entry.email,
+                    "notes": result.entry.notes,
+                    "_macMock": "true"
+                ]
+            )
+            #else
             do {
                 guard try await ToolRegistry.shared.requestAccess(for: .contacts) else {
                     return failurePayload(error: "未获得通讯录权限")
@@ -89,6 +106,7 @@ enum ContactsTools {
             } catch {
                 return failurePayload(error: "保存联系人失败：\(error.localizedDescription)")
             }
+            #endif
         })
 
         // ── contacts-search ──
@@ -113,6 +131,18 @@ enum ContactsTools {
                 return failurePayload(error: "请至少提供 query、name、phone、email 或 identifier 其中一个参数")
             }
 
+            #if !os(iOS)
+            let mockMatches = Array(MacContactsMock.search(identifier: identifier, name: name, phone: phone, email: email, query: query).prefix(5))
+            let mockItems = mockMatches.map(MacContactsMock.summaryDict)
+            if mockMatches.isEmpty {
+                return successPayload(result: "未找到匹配的联系人。", extras: ["count": 0, "items": mockItems])
+            }
+            let mockLines = mockMatches.map(MacContactsMock.summaryText)
+            return successPayload(
+                result: "找到 \(mockMatches.count) 个联系人：\(mockLines.joined(separator: "；"))。",
+                extras: ["count": mockMatches.count, "items": mockItems]
+            )
+            #else
             do {
                 guard try await ToolRegistry.shared.requestAccess(for: .contacts) else {
                     return failurePayload(error: "未获得通讯录权限")
@@ -148,6 +178,7 @@ enum ContactsTools {
             } catch {
                 return failurePayload(error: "搜索联系人失败：\(error.localizedDescription)")
             }
+            #endif
         })
 
         // ── contacts-delete ──
@@ -179,6 +210,30 @@ enum ContactsTools {
                 return failurePayload(error: "请至少提供 query、name、phone、email 或 identifier 其中一个参数")
             }
 
+            #if !os(iOS)
+            let mockMatches = MacContactsMock.search(identifier: identifier, name: name, phone: phone, email: email, query: query)
+            if mockMatches.isEmpty {
+                return failurePayload(error: "未找到匹配的联系人")
+            }
+            if mockMatches.count > 1 && !deleteAll {
+                let previews = mockMatches.prefix(5).map(MacContactsMock.summaryText).joined(separator: "；")
+                return failurePayload(error: "匹配到多个联系人，请提供更具体的信息，或传 all=true 全部删除：\(previews)")
+            }
+            MacContactsMock.delete(mockMatches)
+            if mockMatches.count == 1 {
+                let c = mockMatches[0]
+                return successPayload(
+                    result: "已删除联系人\u{201C}\(c.name)\u{201D}。",
+                    extras: ["identifier": c.identifier, "name": c.name, "phone": c.phone, "email": c.email, "deletedCount": "1"]
+                )
+            } else {
+                let names = mockMatches.map(\.name)
+                return successPayload(
+                    result: "已删除 \(mockMatches.count) 位联系人：\(names.joined(separator: "、"))。",
+                    extras: ["deletedCount": "\(mockMatches.count)", "deletedNames": names.joined(separator: ",")]
+                )
+            }
+            #else
             do {
                 guard try await ToolRegistry.shared.requestAccess(for: .contacts) else {
                     return failurePayload(error: "未获得通讯录权限")
@@ -236,6 +291,7 @@ enum ContactsTools {
             } catch {
                 return failurePayload(error: "删除联系人失败：\(error.localizedDescription)")
             }
+            #endif
         })
     }
 
@@ -456,3 +512,72 @@ enum ContactsTools {
         }
     }
 }
+
+#if !os(iOS)
+// Mac CLI 上 CNContactStore 因 TCC 不可用. 上层 SKILL flow 仍真跑, 系统副作用层
+// (CNSaveRequest.execute / CNContactStore.unifiedContacts) 走这个内存 mock —
+// 跨工具状态保留 (upsert 写入, 后续 search/delete 能找到), harness scenario 端到端
+// 行为跟 iOS 真机一致. 真实写入 Contacts.app 由 iOS 真机测兜底.
+enum MacContactsMock {
+    struct Entry {
+        var identifier: String
+        var name: String
+        var phone: String
+        var company: String
+        var email: String
+        var notes: String
+    }
+    static var entries: [Entry] = []
+
+    static func upsert(name: String, phone: String?, company: String?, email: String?, notes: String?) -> (action: String, entry: Entry) {
+        // phone 匹配 → 视为更新; 否则新建
+        if let phone, !phone.isEmpty,
+           let idx = entries.firstIndex(where: { $0.phone == phone }) {
+            entries[idx].name = name
+            if let company { entries[idx].company = company }
+            if let email   { entries[idx].email   = email   }
+            if let notes   { entries[idx].notes   = notes   }
+            return ("updated", entries[idx])
+        }
+        let entry = Entry(
+            identifier: "mock-mac-\(UUID().uuidString)",
+            name: name,
+            phone: phone ?? "",
+            company: company ?? "",
+            email: email ?? "",
+            notes: notes ?? ""
+        )
+        entries.append(entry)
+        return ("created", entry)
+    }
+
+    static func search(identifier: String?, name: String?, phone: String?, email: String?, query: String?) -> [Entry] {
+        entries.filter { e in
+            if let identifier, !identifier.isEmpty, e.identifier == identifier { return true }
+            if let phone, !phone.isEmpty, e.phone == phone { return true }
+            if let email, !email.isEmpty, !e.email.isEmpty, e.email == email { return true }
+            if let name, !name.isEmpty, e.name.contains(name) { return true }
+            if let query, !query.isEmpty,
+               e.name.contains(query) || e.phone.contains(query) || e.company.contains(query) {
+                return true
+            }
+            return false
+        }
+    }
+
+    static func delete(_ targets: [Entry]) {
+        let ids = Set(targets.map(\.identifier))
+        entries.removeAll { ids.contains($0.identifier) }
+    }
+
+    static func summaryDict(_ e: Entry) -> [String: String] {
+        ["identifier": e.identifier, "name": e.name, "phone": e.phone, "company": e.company, "email": e.email]
+    }
+    static func summaryText(_ e: Entry) -> String {
+        var parts = [e.name]
+        if !e.phone.isEmpty { parts.append(e.phone) }
+        if !e.company.isEmpty { parts.append(e.company) }
+        return parts.joined(separator: " ")
+    }
+}
+#endif

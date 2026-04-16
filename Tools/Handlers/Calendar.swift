@@ -19,10 +19,17 @@ enum CalendarTools {
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let title = rawTitle.isEmpty ? "新日历事项" : rawTitle
 
+            // start 是日历事项核心硬参. 设计: 若用户只给"日期"没给"几点" (E2B 容易
+            // 脑补 "今天" / "明天" 不带时间), tool 强制返失败让模型追问, 不让模型自己
+            // 编时间. 完整性检测走通用 parseToolDateTimeDetailed.hasExplicitTime.
             guard let startRaw = args["start"] as? String,
-                  let startDate = parseToolDateTime(startRaw) else {
-                return failurePayload(error: "没听清开始时间，可以再说一次吗？例如\"明天下午两点\"或\"5月3日15:00\"")
+                  let parsed = parseToolDateTimeDetailed(startRaw) else {
+                return failurePayload(error: "没听清开始时间, 可以再说一次吗? 例如\"明天下午两点\"或\"5月3日15:00\"")
             }
+            guard parsed.hasExplicitTime else {
+                return failurePayload(error: "\u{201C}\(startRaw)\u{201D}没说几点, 想约什么时间呢? 例如\"\(startRaw)下午两点\"")
+            }
+            let startDate = parsed.date
 
             let endRaw = (args["end"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let endDate = endRaw.flatMap { parseToolDateTime($0) } ?? startDate.addingTimeInterval(3600)
@@ -33,6 +40,23 @@ enum CalendarTools {
             let location = (args["location"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             let notes = (args["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
+            // 上层逻辑全真 (parse + validate). 系统副作用 (EKEventStore.save) 在
+            // Mac CLI 因 TCC 拒绝服务无法测, 走 mock 返合成 success — harness 验证
+            // SKILL flow 端到端正确. 真实写入 iOS Calendar.app 由真机测兜底.
+            #if !os(iOS)
+            return successPayload(
+                result: "已创建日历事项\u{201C}\(title)\u{201D}，开始时间为 \(iso8601String(from: startDate))。",
+                extras: [
+                    "eventId": "mock-mac-\(UUID().uuidString)",
+                    "title": title,
+                    "start": iso8601String(from: startDate),
+                    "end": iso8601String(from: endDate),
+                    "location": location ?? "",
+                    "notes": notes ?? "",
+                    "_macMock": true
+                ]
+            )
+            #else
             do {
                 guard try await ToolRegistry.shared.requestAccess(for: .calendar) else {
                     return failurePayload(error: "未获得日历写入权限")
@@ -70,6 +94,7 @@ enum CalendarTools {
             } catch {
                 return failurePayload(error: "创建日历事项失败：\(error.localizedDescription)")
             }
+            #endif
         })
     }
 
