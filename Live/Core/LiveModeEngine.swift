@@ -382,6 +382,10 @@ class LiveModeEngine {
             }
         }()
 
+        // TTS 开始前就结束 "正在加载" 状态 — 用户听到声音 = 加载完成
+        // (tts.speak 会阻塞 ~1.2s 等音频播完, 原来的 statusMessage 在 speak 之后
+        //  才更新, 导致整段 TTS 播放期间 UI 还在显示"正在加载", 和语音反馈错位)
+        statusMessage = ""
         await tts.speak("我在听，请说话。")
         lastAssistantPlaybackEndTime = CFAbsoluteTimeGetCurrent()
 

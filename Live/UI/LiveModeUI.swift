@@ -32,17 +32,14 @@ struct LiveModeView: View {
         }
     }
 
-    private var headline: String {
+    /// 状态提示只在"加载中"阶段显示。加载结束后 (TTS 开始说话 = 加载完成),
+    /// statusMessage 被清空, 这里返回 nil, UI 整块隐藏。
+    /// 原则: 能用语音 (TTS 说"我在听") 和 Orb 状态 (暗→亮) 表达的, 就不用文字.
+    private var headline: String? {
         if liveEngine.statusMessage == "正在准备 Live" {
             return "正在加载"
         }
-        switch liveEngine.state {
-        case .idle: return "LIVE 未启动"
-        case .listening: return "我在听"
-        case .recording: return "正在听你说"
-        case .processing: return "正在理解"
-        case .speaking: return "正在回答"
-        }
+        return nil
     }
 
     private var liveIconName: String {
@@ -164,25 +161,18 @@ struct LiveModeView: View {
 
     private var statusCapsule: some View {
         // 极简: 无图标, 极细字体 + condensed + tracking = 冷静的科技感
-        // 淡淡的一行, 提示但不抢焦, Orb 是绝对主角
-        VStack(spacing: 4) {
-            Text(headline)
-                .font(.system(size: 14, weight: .thin))
-                .fontWidth(.condensed)
-                .tracking(2.0)
-                .foregroundStyle(.white.opacity(0.55))
-                .contentTransition(.numericText())
-
-            if liveEngine.state == .speaking || liveEngine.state == .processing {
-                Text("可以直接打断")
-                    .font(.system(size: 10, weight: .ultraLight))
+        // 只在加载阶段 ("正在加载") 显示, 其它时间隐藏 —— 靠 TTS 语音和 Orb 色变表达状态
+        Group {
+            if let text = headline {
+                Text(text)
+                    .font(.system(size: 14, weight: .thin))
                     .fontWidth(.condensed)
-                    .tracking(1.0)
-                    .foregroundStyle(.white.opacity(0.30))
+                    .tracking(2.0)
+                    .foregroundStyle(.white.opacity(0.55))
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: liveEngine.state)
+        .animation(.easeInOut(duration: 0.3), value: headline)
     }
 
     // MARK: - 对话文字区
