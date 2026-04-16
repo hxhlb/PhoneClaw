@@ -204,35 +204,36 @@ struct LiveModeView: View {
     }
 
     private var captionArea: some View {
-        VStack(spacing: 12) {
-            // 用户文字 — 无 bubble, 只是浅色透明文字流, 不抢视觉焦点
+        VStack(alignment: .leading, spacing: 10) {
+            // 用户文字 — 左对齐灰度文字流, partial 更浅
             if let current = currentUserCaption {
                 Text(current.text)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(.white.opacity(current.isLive ? 0.55 : 0.75))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 20)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(Color(white: 0.85).opacity(current.isLive ? 0.45 : 0.65))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentTransition(.interpolate)
                     .id("user-caption")
                     .transition(.opacity)
             }
 
-            // AI 回复 — 同样去 bubble, 稍亮一点, 居中
+            // AI 回复 — 同左对齐, 稍亮一点, 流式内插
             if realtimeCaption == nil, !liveEngine.lastReply.isEmpty {
                 Text(liveEngine.lastReply)
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.horizontal, 20)
+                    .foregroundStyle(Color(white: 0.90).opacity(0.82))
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentTransition(.interpolate)
                     .id("ai-reply")
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: currentUserCaption?.text)
-        .animation(.easeInOut(duration: 0.25), value: liveEngine.lastReply)
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 长 easeOut 营造"流式淡入"质感, 新 token 追加进文本时平滑内插
+        .animation(.easeOut(duration: 0.45), value: currentUserCaption?.text)
+        .animation(.easeOut(duration: 0.45), value: liveEngine.lastReply)
     }
 
     // MARK: - 用户文字气泡
