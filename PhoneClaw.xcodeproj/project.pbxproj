@@ -38,7 +38,6 @@
 		5084E1CD2E831BC05F5E4374 /* PromptBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7C06DA449D1395217A42D5 /* PromptBuilder.swift */; };
 		542491EC62E3A48A32792C5D /* LLMAssistantAggregator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E60D531CFDB3173000D0E08 /* LLMAssistantAggregator.swift */; };
 		583517394D45962A75274774 /* SherpaStreamingSTTServiceAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D2C81D409948DB0E2F3B28 /* SherpaStreamingSTTServiceAdapter.swift */; };
-		5C00A2A0FA050301EB5A416F /* UserTurnStrategies+iOSDefault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F11A6D96DE447A4AB05A8F /* UserTurnStrategies+iOSDefault.swift */; };
 		5C01BF2FA8161562894FFD97 /* TurnAnalyzerUserTurnStopStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9184BAEA6C903EB15C66C87 /* TurnAnalyzerUserTurnStopStrategy.swift */; };
 		623A278B9408C9BE8FDE61D1 /* SharedUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DBABEB8C21E7B67E5C2516D /* SharedUI.swift */; };
 		64C85AE4FF9AA2C865C799E9 /* PriorityFrameQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE477C1831B62F46E91D908 /* PriorityFrameQueue.swift */; };
@@ -52,7 +51,6 @@
 		8B0B3BC2CF9E5C58519C11C2 /* Pipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05F6F914DA96277333B2DFD8 /* Pipeline.swift */; };
 		8D92BA73222C507ADD63ED33 /* OrbSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73C9FFB0EEDE520F2885102 /* OrbSceneView.swift */; };
 		8E9B8E06D2729659B52A95C1 /* UserIdleController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873A87EDEFC683684488EC77 /* UserIdleController.swift */; };
-		8F21A18B1C2D3E4F50617283 /* Sleeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F21A18B1C2D3E4F50617282 /* Sleeper.swift */; };
 		911E4634041EBFC4AAA48EFA /* LLMContextAggregatorPair.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2357D8430FF56AA14B9D3E /* LLMContextAggregatorPair.swift */; };
 		916086085ECE53782F3654D2 /* TranscriptionUserTurnStartStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56B6B380A592DF501C5C963B /* TranscriptionUserTurnStartStrategy.swift */; };
 		93BD549B99F4F88D0BEB9B2A /* BaseUserTurnStopStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDF20C6E0367F51A0138B212 /* BaseUserTurnStopStrategy.swift */; };
@@ -112,7 +110,6 @@
 		B1A2C3D4E5F607182930B102 /* gemma-4-e2b-it-4bit in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081A2B3C4D5E6F7084 /* gemma-4-e2b-it-4bit */; };
 		B1A2C3D4E5F607182930B103 /* gemma-4-e4b-it-4bit in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081A2B3C4D5E6F7086 /* gemma-4-e4b-it-4bit */; };
 		B1A2C3D4E5F607182930B104 /* sherpa-asr-zh in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081A2B3C4D5E6F7088 /* sherpa-asr-zh */; };
-		B1A2C3D4E5F607182930B105 /* smart-turn-v3.2-cpu.onnx in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081A2B3C4D5E6F7090 /* smart-turn-v3.2-cpu.onnx */; };
 		B1A2C3D4E5F607182930B106 /* vits-zh-hf-keqing in Resources */ = {isa = PBXBuildFile; fileRef = D5E6F7081A2B3C4D5E6F7092 /* vits-zh-hf-keqing */; };
 		B85F211303561796B93E9575 /* VADUserTurnStartStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801423D197CB93890BB039C5 /* VADUserTurnStartStrategy.swift */; };
 		B881A2E7F9483D5ED2AC206B /* SkillsManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D269F8BFCAB68D82440F704B /* SkillsManagerView.swift */; };
@@ -143,7 +140,6 @@
 		DCB2FB741B3A2162725430FC /* LLMContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = A601797F71E10B47BA9814A0 /* LLMContext.swift */; };
 		DE49DFCF4DF4FBABCBCC20DC /* VADAnalyzerProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7420ABF119364EAEAFCE630A /* VADAnalyzerProtocol.swift */; };
 		E3848EFFD200BB2BCB325939 /* BaseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76DD53A6DED79B68F7B2293E /* BaseObserver.swift */; };
-		E4940567B19D78EEA2189FEF /* PipecatLivePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79BC87AB0BCEEB2FB8CE4825 /* PipecatLivePipeline.swift */; };
 		F1AF2D7AAB111966A35AB32E /* IOSLiveTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91366CE61FBA8543A9E95947 /* IOSLiveTransport.swift */; };
 		F4B1F913A5419D9F98865B73 /* BaseUserTurnStartStrategy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2112D2743EB790B71DE7E14C /* BaseUserTurnStartStrategy.swift */; };
 		F6507553CBC1D3D0BCAFF1C9 /* RemoveEmojiTextFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6B722BC23CD411FBFEFC48 /* RemoveEmojiTextFilter.swift */; };
@@ -156,67 +152,25 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		048BEFE3CFA43DC1FEC5DA3D /* BotSpeechGateProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BotSpeechGateProcessor.swift; path = PipecatRuntime/Processors/Audio/BotSpeechGateProcessor.swift; sourceTree = SOURCE_ROOT; };
-		048D73DED34FDD15E9F98763 /* BaseTextFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseTextFilter.swift; path = PipecatRuntime/Text/BaseTextFilter.swift; sourceTree = SOURCE_ROOT; };
-		05F6F914DA96277333B2DFD8 /* Pipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Pipeline.swift; path = PipecatRuntime/Pipeline/Pipeline.swift; sourceTree = SOURCE_ROOT; };
-		08C0734EF567C98B42D22947 /* BaseSmartTurn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseSmartTurn.swift; path = PipecatRuntime/Audio/Turn/SmartTurn/BaseSmartTurn.swift; sourceTree = SOURCE_ROOT; };
 		094A760C8A6DFD5E317AF5B8 /* LiveMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveMetrics.swift; path = Agent/LiveMetrics.swift; sourceTree = SOURCE_ROOT; };
 		098B30935B91CD0BEF3A5056 /* Pods-PhoneClaw.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PhoneClaw.release.xcconfig"; path = "Target Support Files/Pods-PhoneClaw/Pods-PhoneClaw.release.xcconfig"; sourceTree = "<group>"; };
-		0F5D437105B72DAAF0A857F8 /* STTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = STTService.swift; path = PipecatRuntime/Services/STTService.swift; sourceTree = SOURCE_ROOT; };
-		11DA3782228DFD89D321DF46 /* FunctionFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FunctionFrames.swift; path = PipecatRuntime/Frames/FunctionFrames.swift; sourceTree = SOURCE_ROOT; };
-		14D2C81D409948DB0E2F3B28 /* SherpaStreamingSTTServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SherpaStreamingSTTServiceAdapter.swift; path = PipecatRuntime/Services/Local/SherpaStreamingSTTServiceAdapter.swift; sourceTree = SOURCE_ROOT; };
-		198DD55EFDA81AF7447AB985 /* FrameProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FrameProcessor.swift; path = PipecatRuntime/Processors/FrameProcessor.swift; sourceTree = SOURCE_ROOT; };
-		1BD58D674BA7B66415319BBA /* LocalSmartTurnAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LocalSmartTurnAnalyzer.swift; path = PipecatRuntime/Audio/Turn/SmartTurn/LocalSmartTurnAnalyzer.swift; sourceTree = SOURCE_ROOT; };
-		1DBBC836A798B2683C2FA08B /* UserTurnController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UserTurnController.swift; path = PipecatRuntime/Turns/UserTurnController.swift; sourceTree = SOURCE_ROOT; };
-		2112D2743EB790B71DE7E14C /* BaseUserTurnStartStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseUserTurnStartStrategy.swift; path = PipecatRuntime/Turns/Strategies/Start/BaseUserTurnStartStrategy.swift; sourceTree = SOURCE_ROOT; };
 		22A3E6DE14D68AD9C9ABF0E8 /* AudioUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AudioUI.swift; path = UI/AudioUI.swift; sourceTree = SOURCE_ROOT; };
-		24F07C7F143FA2A4703E55EE /* SpeechTimeoutUserTurnStopStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpeechTimeoutUserTurnStopStrategy.swift; path = PipecatRuntime/Turns/Strategies/Stop/SpeechTimeoutUserTurnStopStrategy.swift; sourceTree = SOURCE_ROOT; };
-		260CEFE477936BA4A18DD6CC /* FluidAudioVADAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FluidAudioVADAnalyzer.swift; path = PipecatRuntime/Processors/Audio/FluidAudioVADAnalyzer.swift; sourceTree = SOURCE_ROOT; };
 		2D672ACC5EAC3A11F9A0735C /* VoiceTurnController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VoiceTurnController.swift; path = Agent/VoiceTurnController.swift; sourceTree = SOURCE_ROOT; };
 		2E7C06DA449D1395217A42D5 /* PromptBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptBuilder.swift; sourceTree = "<group>"; };
 		2F4A6C8E0A1B2C3D4E5F6070 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
-		34828A96D128D922804F3DAC /* ProcessFrameResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProcessFrameResult.swift; path = PipecatRuntime/Turns/Types/ProcessFrameResult.swift; sourceTree = SOURCE_ROOT; };
-		349ED4AF5B9D475CCCAA808A /* LiveSessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveSessionState.swift; path = PipecatRuntime/App/LiveSessionState.swift; sourceTree = SOURCE_ROOT; };
 		357644EE0B2A47696762E171 /* LiveCameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveCameraService.swift; path = Agent/LiveCameraService.swift; sourceTree = SOURCE_ROOT; };
 		38FC1001EB728212335AC141 /* PhoneClaw.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PhoneClaw.entitlements; sourceTree = "<group>"; };
-		3D50D49B905DC81880B55F1F /* UserTurnStrategies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UserTurnStrategies.swift; path = PipecatRuntime/Turns/UserTurnStrategies.swift; sourceTree = SOURCE_ROOT; };
 		408F2AE98EA54717A74FA4B1 /* PhoneClaw.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhoneClaw.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4628E2A5FD49247E1D6BE283 /* ResponseUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResponseUI.swift; path = UI/ResponseUI.swift; sourceTree = SOURCE_ROOT; };
-		4BF6670A148E2F105CAC0F25 /* VADProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VADProcessor.swift; path = PipecatRuntime/Processors/Audio/VADProcessor.swift; sourceTree = SOURCE_ROOT; };
 		4DD9808FE93325C3CE4CFA00 /* PhoneClawApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneClawApp.swift; sourceTree = "<group>"; };
-		4E958DFEE7A9D7985F127E5D /* VADController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VADController.swift; path = PipecatRuntime/Processors/Audio/VADController.swift; sourceTree = SOURCE_ROOT; };
 		4F4ACB3F4531FF61E0AADA07 /* libPods-PhoneClaw.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-PhoneClaw.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		52F30C6348B834E5D157205F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		547DFB8DC456148B1CFF337C /* Frames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Frames.swift; path = PipecatRuntime/Frames/Frames.swift; sourceTree = SOURCE_ROOT; };
-		56B6B380A592DF501C5C963B /* TranscriptionUserTurnStartStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TranscriptionUserTurnStartStrategy.swift; path = PipecatRuntime/Turns/Strategies/Start/TranscriptionUserTurnStartStrategy.swift; sourceTree = SOURCE_ROOT; };
 		571908036E6DCED1D58C1E9E /* Skills.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skills.swift; sourceTree = "<group>"; };
-		58041020FE4323CE1FFB0DF7 /* LLMContextAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LLMContextAggregator.swift; path = PipecatRuntime/Processors/Aggregators/LLMContextAggregator.swift; sourceTree = SOURCE_ROOT; };
-		5839E5F61D60CBC937AFCAAA /* BaseInputTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseInputTransport.swift; path = PipecatRuntime/Transports/BaseInputTransport.swift; sourceTree = SOURCE_ROOT; };
-		5E60D531CFDB3173000D0E08 /* LLMAssistantAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LLMAssistantAggregator.swift; path = PipecatRuntime/Processors/Aggregators/LLMAssistantAggregator.swift; sourceTree = SOURCE_ROOT; };
-		6049CB1301D2CA9C505E87DC /* MLXLLMServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MLXLLMServiceAdapter.swift; path = PipecatRuntime/Services/Local/MLXLLMServiceAdapter.swift; sourceTree = SOURCE_ROOT; };
-		61408245652635B4159BD82F /* BaseOutputTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseOutputTransport.swift; path = PipecatRuntime/Transports/BaseOutputTransport.swift; sourceTree = SOURCE_ROOT; };
-		674A2B5F5B18DB699C6170ED /* UserTurnParams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UserTurnParams.swift; path = PipecatRuntime/Turns/Strategies/UserTurnParams.swift; sourceTree = SOURCE_ROOT; };
-		6A67E7C055778EB798AAEFC3 /* MarkdownTextFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MarkdownTextFilter.swift; path = PipecatRuntime/Text/MarkdownTextFilter.swift; sourceTree = SOURCE_ROOT; };
-		7420ABF119364EAEAFCE630A /* VADAnalyzerProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VADAnalyzerProtocol.swift; path = PipecatRuntime/Processors/Audio/VADAnalyzerProtocol.swift; sourceTree = SOURCE_ROOT; };
-		7532E66C19EBE3C992735049 /* LiveStateObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveStateObserver.swift; path = PipecatRuntime/Observers/LiveStateObserver.swift; sourceTree = SOURCE_ROOT; };
-		76DD53A6DED79B68F7B2293E /* BaseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseObserver.swift; path = PipecatRuntime/Observers/BaseObserver.swift; sourceTree = SOURCE_ROOT; };
-		78640412E030434484F57B9C /* AudioFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AudioFrames.swift; path = PipecatRuntime/Frames/AudioFrames.swift; sourceTree = SOURCE_ROOT; };
-		790F74FB191932BBFC19C2B6 /* BaseTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseTransport.swift; path = PipecatRuntime/Transports/BaseTransport.swift; sourceTree = SOURCE_ROOT; };
-		79BC87AB0BCEEB2FB8CE4825 /* PipecatLivePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipecatLivePipeline.swift; path = Agent/PipecatLivePipeline.swift; sourceTree = SOURCE_ROOT; };
 		7C500DE8A47482D5DA7DA6D3 /* ASRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ASRService.swift; path = Agent/ASRService.swift; sourceTree = SOURCE_ROOT; };
-		801423D197CB93890BB039C5 /* VADUserTurnStartStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VADUserTurnStartStrategy.swift; path = PipecatRuntime/Turns/Strategies/Start/VADUserTurnStartStrategy.swift; sourceTree = SOURCE_ROOT; };
 		83C5B0E5FD420CCB6BD8D1A4 /* LiveModeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveModeEngine.swift; path = Agent/LiveModeEngine.swift; sourceTree = SOURCE_ROOT; };
 		840B21562E52B6B93D4410D0 /* LiveModeUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveModeUI.swift; path = UI/LiveModeUI.swift; sourceTree = SOURCE_ROOT; };
-		84CD9F8DFFE7D745D1648019 /* UserTurnProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UserTurnProcessor.swift; path = PipecatRuntime/Turns/UserTurnProcessor.swift; sourceTree = SOURCE_ROOT; };
-		873A87EDEFC683684488EC77 /* UserIdleController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = UserIdleController.swift; path = PipecatRuntime/Turns/UserIdleController.swift; sourceTree = SOURCE_ROOT; };
-		87F11A6D96DE447A4AB05A8F /* UserTurnStrategies+iOSDefault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "UserTurnStrategies+iOSDefault.swift"; path = "Agent/PipecatBindings/UserTurnStrategies+iOSDefault.swift"; sourceTree = SOURCE_ROOT; };
-		8F21A18B1C2D3E4F50617282 /* Sleeper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Sleeper.swift; path = PipecatRuntime/Utils/Sleeper.swift; sourceTree = SOURCE_ROOT; };
-		8ED4CDD3BE43ECDB4856379E /* BaseTurnAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseTurnAnalyzer.swift; path = PipecatRuntime/Audio/Turn/BaseTurnAnalyzer.swift; sourceTree = SOURCE_ROOT; };
-		91366CE61FBA8543A9E95947 /* IOSLiveTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = IOSLiveTransport.swift; path = PipecatRuntime/Transports/IOSLiveTransport.swift; sourceTree = SOURCE_ROOT; };
-		9A6B722BC23CD411FBFEFC48 /* RemoveEmojiTextFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoveEmojiTextFilter.swift; path = PipecatRuntime/Text/RemoveEmojiTextFilter.swift; sourceTree = SOURCE_ROOT; };
 		9C503EC6B19AD0CF5515B98E /* LiveComponentTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveComponentTest.swift; path = Agent/LiveComponentTest.swift; sourceTree = SOURCE_ROOT; };
-		9D71B4E98491AF7D57EE10CA /* SegmentedSTTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SegmentedSTTService.swift; path = PipecatRuntime/Services/SegmentedSTTService.swift; sourceTree = SOURCE_ROOT; };
-		9D80CB631331A0CA07699BDE /* OutputSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OutputSanitizer.swift; path = PipecatRuntime/Text/OutputSanitizer.swift; sourceTree = SOURCE_ROOT; };
+		9D80CB631331A0CA07699BDE /* OutputSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OutputSanitizer.swift; path = Agent/Engine/OutputSanitizer.swift; sourceTree = SOURCE_ROOT; };
 		9DBABEB8C21E7B67E5C2516D /* SharedUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SharedUI.swift; path = UI/SharedUI.swift; sourceTree = SOURCE_ROOT; };
 		A1AB7F250BEEFF938318AA75 /* Pods-PhoneClaw.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-PhoneClaw.debug.xcconfig"; path = "Target Support Files/Pods-PhoneClaw/Pods-PhoneClaw.debug.xcconfig"; sourceTree = "<group>"; };
 		A31476E82F856FD700318978 /* ChatAttachments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAttachments.swift; sourceTree = "<group>"; };
@@ -227,9 +181,6 @@
 		A31476F22F85741500318978 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
 		A31476F32F85741500318978 /* ToolCallParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolCallParser.swift; sourceTree = "<group>"; };
 		A31476F42F85741500318978 /* ToolChain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolChain.swift; sourceTree = "<group>"; };
-		A601797F71E10B47BA9814A0 /* LLMContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LLMContext.swift; path = PipecatRuntime/Processors/Aggregators/LLMContext.swift; sourceTree = SOURCE_ROOT; };
-		A69F76927D76D4F3BE742DA1 /* AudioChunk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AudioChunk.swift; path = PipecatRuntime/Frames/AudioChunk.swift; sourceTree = SOURCE_ROOT; };
-		A7EBF8401F5541CC38BD55B1 /* AlwaysUserMuteStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlwaysUserMuteStrategy.swift; path = PipecatRuntime/Turns/UserMute/AlwaysUserMuteStrategy.swift; sourceTree = SOURCE_ROOT; };
 		AA2000000000000000000001 /* LLMEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMEngine.swift; sourceTree = "<group>"; };
 		AA2000000000000000000002 /* MLXLocalLLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLXLocalLLMService.swift; sourceTree = "<group>"; };
 		AA2000000000000000000003 /* Gemma4Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gemma4Config.swift; sourceTree = "<group>"; };
@@ -255,16 +206,12 @@
 		AA2000000000000000000108 /* GPULifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPULifecycle.swift; sourceTree = "<group>"; };
 		AA2000000000000000000202 /* MLXLocalLLMService+KVReuse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MLXLocalLLMService+KVReuse.swift"; sourceTree = "<group>"; };
 		B1A2C3D4E5F607182930B101 /* Library */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Library; sourceTree = "<group>"; };
-		B4730B9C65C38B6B52844DD4 /* PipelineTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PipelineTask.swift; path = PipecatRuntime/Pipeline/PipelineTask.swift; sourceTree = SOURCE_ROOT; };
-		B642CB052B73B62BD675583D /* LLMUserAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LLMUserAggregator.swift; path = PipecatRuntime/Processors/Aggregators/LLMUserAggregator.swift; sourceTree = SOURCE_ROOT; };
 		BA48303BA25916A3A431EDE6 /* OrbBackgroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrbBackgroundView.swift; path = UI/LiveOrb/OrbBackgroundView.swift; sourceTree = SOURCE_ROOT; };
 		C1A2B3D4E5F607182930A1B3 /* SkillLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillLoader.swift; sourceTree = "<group>"; };
 		C1A2B3D4E5F607182930A1C3 /* SkillRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillRegistry.swift; sourceTree = "<group>"; };
 		C3C4D5E6F7081A2B3C52D3E5 /* ChatModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatModels.swift; sourceTree = "<group>"; };
 		C4D5E6F70819A2B3C463E4F6 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		C70EDE41C438263F820D0FCC /* OrbShaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrbShaderSource.swift; path = UI/LiveOrb/OrbShaderSource.swift; sourceTree = SOURCE_ROOT; };
-		C962A397148BBF852D5AFAFF /* SherpaSTTServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SherpaSTTServiceAdapter.swift; path = PipecatRuntime/Services/Local/SherpaSTTServiceAdapter.swift; sourceTree = SOURCE_ROOT; };
-		CDF20C6E0367F51A0138B212 /* BaseUserTurnStopStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseUserTurnStopStrategy.swift; path = PipecatRuntime/Turns/Strategies/Stop/BaseUserTurnStopStrategy.swift; sourceTree = SOURCE_ROOT; };
 		CEA10A9D8F9AB4A2764A1A13 /* SherpaOnnx.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SherpaOnnx.swift; path = Agent/SherpaOnnx.swift; sourceTree = SOURCE_ROOT; };
 		D269F8BFCAB68D82440F704B /* SkillsManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsManagerView.swift; sourceTree = "<group>"; };
 		D3A1B2C3D4E5F60718290101 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
@@ -279,24 +226,15 @@
 		D5E6F7081A2B3C4D5E6F7084 /* gemma-4-e2b-it-4bit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "gemma-4-e2b-it-4bit"; path = "Models/gemma-4-e2b-it-4bit"; sourceTree = "<group>"; };
 		D5E6F7081A2B3C4D5E6F7086 /* gemma-4-e4b-it-4bit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "gemma-4-e4b-it-4bit"; path = "Models/gemma-4-e4b-it-4bit"; sourceTree = "<group>"; };
 		D5E6F7081A2B3C4D5E6F7088 /* sherpa-asr-zh */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "sherpa-asr-zh"; path = "Models/sherpa-asr-zh"; sourceTree = "<group>"; };
-		D5E6F7081A2B3C4D5E6F7090 /* smart-turn-v3.2-cpu.onnx */ = {isa = PBXFileReference; lastKnownFileType = file; name = "smart-turn-v3.2-cpu.onnx"; path = "smart-turn-v3.2-cpu.onnx"; sourceTree = SOURCE_ROOT; };
 		D5E6F7081A2B3C4D5E6F7092 /* vits-zh-hf-keqing */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "vits-zh-hf-keqing"; path = "Models/vits-zh-hf-keqing"; sourceTree = "<group>"; };
-		D88895B273185FAEFE396A38 /* SherpaTTSServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SherpaTTSServiceAdapter.swift; path = PipecatRuntime/Services/Local/SherpaTTSServiceAdapter.swift; sourceTree = SOURCE_ROOT; };
-		DA2357D8430FF56AA14B9D3E /* LLMContextAggregatorPair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LLMContextAggregatorPair.swift; path = PipecatRuntime/Processors/Aggregators/LLMContextAggregatorPair.swift; sourceTree = SOURCE_ROOT; };
 		DAF684F9A04FAEE76440F69C /* OrbAudioAnalyser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrbAudioAnalyser.swift; path = Agent/OrbAudioAnalyser.swift; sourceTree = SOURCE_ROOT; };
 		E18A47114A10132E25E220F8 /* AgentEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentEngine.swift; sourceTree = "<group>"; };
 		E62C3CEFC7AE63873D751E75 /* ConfigurationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationsView.swift; sourceTree = "<group>"; };
-		E8FA0F50182C9CB35158A262 /* ControlFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ControlFrames.swift; path = PipecatRuntime/Frames/ControlFrames.swift; sourceTree = SOURCE_ROOT; };
-		EF7337BA528652D914A46BBC /* SherpaSegmentedSTTServiceAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SherpaSegmentedSTTServiceAdapter.swift; path = PipecatRuntime/Services/Local/SherpaSegmentedSTTServiceAdapter.swift; sourceTree = SOURCE_ROOT; };
-		EFE477C1831B62F46E91D908 /* PriorityFrameQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PriorityFrameQueue.swift; path = PipecatRuntime/Pipeline/PriorityFrameQueue.swift; sourceTree = SOURCE_ROOT; };
 		F06A8F86444AB26C7373919B /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TTSService.swift; path = Agent/TTSService.swift; sourceTree = SOURCE_ROOT; };
 		F18C7A5D1474A06400BE423D /* VADService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VADService.swift; path = Agent/VADService.swift; sourceTree = SOURCE_ROOT; };
 		F5ED928BF14864713A9A9D16 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F73C9FFB0EEDE520F2885102 /* OrbSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrbSceneView.swift; path = UI/LiveOrb/OrbSceneView.swift; sourceTree = SOURCE_ROOT; };
 		F8D921B323B9D6342A22A29E /* LiveAudioIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveAudioIO.swift; path = Agent/LiveAudioIO.swift; sourceTree = SOURCE_ROOT; };
-		F9184BAEA6C903EB15C66C87 /* TurnAnalyzerUserTurnStopStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TurnAnalyzerUserTurnStopStrategy.swift; path = PipecatRuntime/Turns/Strategies/Stop/TurnAnalyzerUserTurnStopStrategy.swift; sourceTree = SOURCE_ROOT; };
-		FB187694A4E99E6C055EE086 /* BaseUserMuteStrategy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BaseUserMuteStrategy.swift; path = PipecatRuntime/Turns/UserMute/BaseUserMuteStrategy.swift; sourceTree = SOURCE_ROOT; };
-		FBFDA3E03F157B7D5E8AACC2 /* LLMFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LLMFrames.swift; path = PipecatRuntime/Frames/LLMFrames.swift; sourceTree = SOURCE_ROOT; };
 		ICONASSETS0000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -339,7 +277,6 @@
 				D5E6F7081A2B3C4D5E6F7084 /* gemma-4-e2b-it-4bit */,
 				D5E6F7081A2B3C4D5E6F7086 /* gemma-4-e4b-it-4bit */,
 				D5E6F7081A2B3C4D5E6F7088 /* sherpa-asr-zh */,
-				D5E6F7081A2B3C4D5E6F7090 /* smart-turn-v3.2-cpu.onnx */,
 				D5E6F7081A2B3C4D5E6F7092 /* vits-zh-hf-keqing */,
 				AC5E0AA2711EA01E891DE3A7 /* Products */,
 				03C67BBB35FEB376174D7420 /* Pods */,
@@ -518,15 +455,12 @@
 				674A2B5F5B18DB699C6170ED /* UserTurnParams.swift */,
 				34828A96D128D922804F3DAC /* ProcessFrameResult.swift */,
 				873A87EDEFC683684488EC77 /* UserIdleController.swift */,
-				8F21A18B1C2D3E4F50617282 /* Sleeper.swift */,
 				A7EBF8401F5541CC38BD55B1 /* AlwaysUserMuteStrategy.swift */,
 				FB187694A4E99E6C055EE086 /* BaseUserMuteStrategy.swift */,
 				1DBBC836A798B2683C2FA08B /* UserTurnController.swift */,
 				84CD9F8DFFE7D745D1648019 /* UserTurnProcessor.swift */,
 				3D50D49B905DC81880B55F1F /* UserTurnStrategies.swift */,
-				87F11A6D96DE447A4AB05A8F /* UserTurnStrategies+iOSDefault.swift */,
 				9D80CB631331A0CA07699BDE /* OutputSanitizer.swift */,
-				79BC87AB0BCEEB2FB8CE4825 /* PipecatLivePipeline.swift */,
 				F8D921B323B9D6342A22A29E /* LiveAudioIO.swift */,
 				83C5B0E5FD420CCB6BD8D1A4 /* LiveModeEngine.swift */,
 				840B21562E52B6B93D4410D0 /* LiveModeUI.swift */,
@@ -676,7 +610,6 @@
 				B1A2C3D4E5F607182930B102 /* gemma-4-e2b-it-4bit in Resources */,
 				B1A2C3D4E5F607182930B103 /* gemma-4-e4b-it-4bit in Resources */,
 				B1A2C3D4E5F607182930B104 /* sherpa-asr-zh in Resources */,
-				B1A2C3D4E5F607182930B105 /* smart-turn-v3.2-cpu.onnx in Resources */,
 				B1A2C3D4E5F607182930B106 /* vits-zh-hf-keqing in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -791,15 +724,12 @@
 				77CE684DABF6C69ECF54AB3F /* UserTurnParams.swift in Sources */,
 				26929A1E3A3435B723DD604D /* ProcessFrameResult.swift in Sources */,
 				8E9B8E06D2729659B52A95C1 /* UserIdleController.swift in Sources */,
-				8F21A18B1C2D3E4F50617283 /* Sleeper.swift in Sources */,
 				262A3E0B099DCF52616B3F0C /* AlwaysUserMuteStrategy.swift in Sources */,
 				FD845BA1DB428F45EDEE9000 /* BaseUserMuteStrategy.swift in Sources */,
 				0B263C823B20AE04F227B187 /* UserTurnController.swift in Sources */,
 				C6C41C306E9D307AAB4F3284 /* UserTurnProcessor.swift in Sources */,
 				1D6B9BBA44F194BB9B33BD65 /* UserTurnStrategies.swift in Sources */,
-				5C00A2A0FA050301EB5A416F /* UserTurnStrategies+iOSDefault.swift in Sources */,
 				F84BD7F445E2D383551198FB /* OutputSanitizer.swift in Sources */,
-				E4940567B19D78EEA2189FEF /* PipecatLivePipeline.swift in Sources */,
 				32D9B612A8A28256BD2CCA55 /* LiveAudioIO.swift in Sources */,
 				0D58F93BFFFFE778CD8A34D1 /* LiveModeEngine.swift in Sources */,
 				CE2D5BD7F3C310C8CE319A6D /* LiveModeUI.swift in Sources */,

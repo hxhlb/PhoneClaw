@@ -158,15 +158,6 @@ class LiveModeEngine {
     private var synthesisPipeline: AsyncStream<String>.Continuation?
     private var synthesisTask: Task<Void, Never>?
 
-    // MARK: - Pipecat runtime (A/B 开关)
-
-    /// 设为 true 启用 PipecatRuntime 路径；false 保持旧 VAD/ASR/TTS 铥。
-    /// 验收通过后，删除旧铥及此开关。
-    private var usePipecatRuntime = true
-
-    private var pipecatPipeline: PipecatLivePipeline?
-    private var sessionStateObservationTask: Task<Void, Never>?
-
     // MARK: - Turn Controller
 
     private let turnController = VoiceTurnController()
@@ -213,127 +204,14 @@ class LiveModeEngine {
     }
 
     /// 调用方注入的用户 SYSPROMPT.md 内容（来自 AgentEngine.config.systemPrompt）。
-    /// 若 nil，PipecatLivePipeline 会回落到 PromptBuilder.defaultSystemPrompt。
-    /// 不论 nil 与否，pipeline 都会在尾部追加 live voice 强约束（marker / 角色 / 语气 / 字数）。
     var userSystemPrompt: String?
 
     func start() async {
-        if usePipecatRuntime {
-            await startWithPipecat()
-        } else {
-            await startLegacy()
-        }
+        await startLegacy()
     }
 
-    // MARK: - PipecatRuntime 路径
+    // MARK: - Legacy path (only path)
 
-    @MainActor
-    private func startWithPipecat() async {
-        guard let llm else { return }
-        guard turnPhase == .inactive else { return }
-        turnPhase = .starting
-
-        // 创建并启动音频引擎
-        let io = LiveAudioIO()
-        do { try io.start() } catch {
-            turnPhase = .inactive
-            state = .idle
-            statusMessage = "音频引擎启动失败"
-            return
-        }
-        audioIO = io
-
-        // Orb 可视化分析器
-        let inAn = OrbAudioAnalyser(); let outAn = OrbAudioAnalyser()
-        inputAnalyser = inAn; outputAnalyser = outAn
-        io.visualisationInputHandler  = { [weak inAn]  s in inAn?.process(samples: s) }
-        io.visualisationOutputHandler = { [weak outAn] p, c in outAn?.process(pointer: p, count: c) }
-
-        // 组装并启动 pipeline
-        let pl = PipecatLivePipeline()
-
-        // onIncompleteTurn 仅做 UI 状态提示——不调用 scheduleIncompleteTurnFollowUp
-        // (MLXLLMServiceAdapter.handleIncompleteTimeout 已自主处理 follow-up)
-        pl.onIncompleteTurn = { [weak self] marker in
-            self?.statusMessage = marker == "○" ? "稍等，让我再想想…" : "稍等，我思考一下…"
-        }
-        pl.onError = { [weak self] message in
-            self?.statusMessage = message
-            self?.state = .idle
-        }
-
-        pipecatPipeline = pl
-
-        // 在 start() 前先启动观察，保证不遗漏任何帧
-        observeSessionState(pl.sessionState)
-
-        state = .listening
-        statusMessage = "我在听，请说话"
-        await pl.start(audioIO: io, llm: llm, userSystemPrompt: userSystemPrompt)
-        turnPhase = .listening
-    }
-
-    // MARK: - 状态观察桥接 (AsyncStream 取消安全)
-
-    private func observeSessionState(_ s: LiveSessionState) {
-        sessionStateObservationTask?.cancel()
-        sessionStateObservationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.applySessionState(s)  // 立即应用当前状态
-            for await _ in Self.makeObservationStream(for: s) {
-                guard !Task.isCancelled else { break }
-                self.applySessionState(s)
-            }
-        }
-    }
-
-    /// 将 @Observable 变化桥接到 AsyncStream。
-    /// 取消安全：AsyncStream.next() 在 task 被取消时返回 nil。
-    /// terminated 标志防止对峢 onChange 在取消后再次注册/yield。
-    private static func makeObservationStream(for s: LiveSessionState) -> AsyncStream<Void> {
-        AsyncStream { continuation in
-            nonisolated(unsafe) var terminated = false
-            // onTermination 必须在首次 observe() 前注册，封闭设置竞态
-            continuation.onTermination = { _ in terminated = true }
-            func observe() {
-                guard !terminated else { return }
-                withObservationTracking {
-                    _ = s.stage; _ = s.isUserSpeaking; _ = s.isBotSpeaking
-                    _ = s.transcript; _ = s.assistantReply; _ = s.caption; _ = s.lastError
-                } onChange: {
-                    guard !terminated else { return }
-                    continuation.yield()
-                    observe()  // 重新注册下一次变化
-                }
-            }
-            observe()
-        }
-    }
-
-    /// LiveSessionState.Stage → LiveModeEngine.State 映射表
-    @MainActor
-    private func applySessionState(_ s: LiveSessionState) {
-        switch s.stage {
-        case .idle, .stopping:
-            state = .idle
-        case .starting, .listening:
-            state = .listening
-        case .userSpeaking:
-            state = .recording
-            if !s.transcript.isEmpty { statusMessage = s.transcript }
-        case .assistantSpeaking:
-            // LLM 生成中 vs TTS 播放中
-            state = s.isBotSpeaking ? .speaking : .processing
-        case .error:
-            state = .idle
-            statusMessage = s.lastError.isEmpty ? "发生错误" : s.lastError
-        }
-        if !s.transcript.isEmpty    { lastTranscript = s.transcript }
-        if !s.assistantReply.isEmpty { lastReply = s.assistantReply }
-        liveCaption = s.caption
-    }
-
-    // 旧铥入口（待验收后删除）
     @MainActor
     private func startLegacy() async {
         guard turnPhase == .inactive else { return }
@@ -520,31 +398,7 @@ class LiveModeEngine {
     }
 
     func stop() async {
-        if usePipecatRuntime {
-            await stopWithPipecat()
-        } else {
-            await stopLegacy()
-        }
-    }
-
-    @MainActor
-    private func stopWithPipecat() async {
-        // 先取消观察 task，再等 pipeline 完全退出——避免 audioIO teardown 竞态
-        sessionStateObservationTask?.cancel()
-        sessionStateObservationTask = nil
-
-        await pipecatPipeline?.stop()  // 内部已 await runTask.value
-
-        audioIO?.visualisationInputHandler  = nil
-        audioIO?.visualisationOutputHandler = nil
-        inputAnalyser = nil; outputAnalyser = nil
-        audioIO?.stop(); audioIO = nil
-        pipecatPipeline = nil
-
-        turnPhase = .inactive
-        state = .idle
-        liveCaption = ""
-        statusMessage = "Live 已结束"
+        await stopLegacy()
     }
 
     @MainActor

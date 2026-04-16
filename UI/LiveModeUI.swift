@@ -13,7 +13,7 @@ struct LiveModeView: View {
 
     let llm: MLXLocalLLMService
     /// 用户在 SYSPROMPT.md 编辑的 system prompt（来自 AgentEngine.config.systemPrompt）。
-    /// 透传到 PipecatLivePipeline，与 live voice 强约束拼接成完整 system prompt。
+    /// 透传到 LiveModeEngine，与 live voice 强约束拼接成完整 system prompt。
     let userSystemPrompt: String?
 
     @State private var liveEngine = LiveModeEngine()

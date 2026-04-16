@@ -1,9 +1,18 @@
 import Foundation
 
-// Sleeper / RealSleeper moved to PipecatRuntime/Utils/Sleeper.swift so the CLI
-// SPM target can use MLXLLMServiceAdapter (which also needs Sleeper) without
-// dragging Agent/ into the CLI module. Same symbols, same module — callers
-// don't notice.
+// MARK: - Sleeper Protocol (injectable time abstraction)
+
+/// Abstraction over `Task.sleep` for deterministic testing.
+/// Production code uses `RealSleeper`; tests inject `FakeSleeper`.
+protocol Sleeper: Sendable {
+    func sleep(for duration: TimeInterval) async throws
+}
+
+struct RealSleeper: Sleeper {
+    func sleep(for duration: TimeInterval) async throws {
+        try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+    }
+}
 
 // MARK: - Voice Turn Controller
 //
