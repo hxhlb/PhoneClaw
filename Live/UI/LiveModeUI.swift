@@ -163,34 +163,34 @@ struct LiveModeView: View {
     // MARK: - 状态胶囊
 
     private var statusCapsule: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: liveIconName)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(accentColor)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(accentColor.opacity(0.85))
                 .contentTransition(.symbolEffect(.replace))
 
             Text(headline)
-                // SF Pro default design + condensed width + tracking = 科技/现代感
-                .font(.system(size: 18, weight: .bold))
-                .fontDesign(.default)
+                // 保留 condensed + 少量 tracking = 现代感, 但 weight/size/opacity
+                // 都压回 "副文本" 级别, 让 Orb 当主视觉
+                .font(.system(size: 14, weight: .medium))
                 .fontWidth(.condensed)
-                .tracking(1.5)
-                .foregroundStyle(.white)
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.78))
                 .contentTransition(.numericText())
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial.opacity(0.7), in: Capsule())
         .overlay(
             Group {
                 if liveEngine.state == .speaking || liveEngine.state == .processing {
                     Text("可以直接打断")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 10, weight: .regular))
                         .fontWidth(.condensed)
-                        .tracking(0.5)
-                        .foregroundStyle(.white.opacity(0.55))
+                        .tracking(0.4)
+                        .foregroundStyle(.white.opacity(0.45))
                         .transition(.opacity)
-                        .offset(y: 28)
+                        .offset(y: 22)
                 }
             }
         )
