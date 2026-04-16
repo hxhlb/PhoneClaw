@@ -9,9 +9,9 @@ enum CalendarTools {
         registry.register(RegisteredTool(
             name: "calendar-create-event",
             description: "创建新的日历事项，可写入标题、开始时间、结束时间、地点和备注",
-            parameters: "title: 事件标题, start: ISO 8601 开始时间, end: ISO 8601 结束时间（可选）, location: 地点（可选）, notes: 备注（可选）",
-            // 只有 start 是硬参 (EventKit API 强制要求)。
-            // title 是软参,缺失时 handler 用默认值,不强制 caller 提供。
+            // 设计原则: SKILL/TOOL 契约按最低能力的模型 (E2B 2B) 来. 不要求 LLM 把
+            // 中文相对时间转成 ISO 8601 — handler 自己解析任何合理时间表达式.
+            parameters: "title: 事件标题, start: 开始时间 (ISO 8601 / 中文相对时间如\"明天下午两点\" / 中文绝对时间如\"5月3日15:00\" 都可), end: 结束时间（可选, 同 start 格式）, location: 地点（可选）, notes: 备注（可选）",
             requiredParameters: ["start"]
         ) { args in
             // title 是软参: 没传或为空时使用默认标题, 不阻断流程
@@ -20,12 +20,12 @@ enum CalendarTools {
             let title = rawTitle.isEmpty ? "新日历事项" : rawTitle
 
             guard let startRaw = args["start"] as? String,
-                  let startDate = parseISO8601Date(startRaw) else {
-                return failurePayload(error: "缺少有效的 start 参数，必须是 ISO 8601 时间字符串")
+                  let startDate = parseToolDateTime(startRaw) else {
+                return failurePayload(error: "没听清开始时间，可以再说一次吗？例如\"明天下午两点\"或\"5月3日15:00\"")
             }
 
             let endRaw = (args["end"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let endDate = endRaw.flatMap(parseISO8601Date) ?? startDate.addingTimeInterval(3600)
+            let endDate = endRaw.flatMap { parseToolDateTime($0) } ?? startDate.addingTimeInterval(3600)
             guard endDate >= startDate else {
                 return failurePayload(error: "end 不能早于 start")
             }

@@ -9,7 +9,9 @@ enum RemindersTools {
         registry.register(RegisteredTool(
             name: "reminders-create",
             description: "创建新的提醒事项，可写入标题、到期时间和备注",
-            parameters: "title: 提醒标题, due: ISO 8601 到期时间（可选）, notes: 备注（可选）",
+            // 设计原则: SKILL/TOOL 契约按最低能力的模型 (E2B 2B) 来. 不要求 LLM 把
+            // 中文相对时间转成 ISO 8601 — handler 自己解析任何合理时间表达式.
+            parameters: "title: 提醒标题, due: 到期时间（可选, 支持 ISO 8601 / 中文相对时间如\"今晚八点\" / 中文绝对时间如\"5月3日15:00\"）, notes: 备注（可选）",
             requiredParameters: ["title"]
         ) { args in
             guard let rawTitle = args["title"] as? String else {
@@ -21,11 +23,11 @@ enum RemindersTools {
             }
 
             let dueRaw = (args["due"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let dueRaw, !dueRaw.isEmpty, parseISO8601Date(dueRaw) == nil {
-                return failurePayload(error: "due 必须是有效的 ISO 8601 时间字符串")
+            if let dueRaw, !dueRaw.isEmpty, parseToolDateTime(dueRaw) == nil {
+                return failurePayload(error: "没听清提醒时间，可以再说一次吗？例如\"今晚八点\"或\"5月3日15:00\"")
             }
 
-            let dueDate = dueRaw.flatMap(parseISO8601Date)
+            let dueDate = dueRaw.flatMap { parseToolDateTime($0) }
             let notes = (args["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
             do {

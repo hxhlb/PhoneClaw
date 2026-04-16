@@ -241,6 +241,16 @@ struct PromptBuilder {
             prompt += "\n\n" + thinkingLanguageInstruction
         }
 
+        // 时间锚点 — 必须在 system block 内, 模型才能算 "明天下午两点" → ISO 8601.
+        // 历史: 2026-04-17 真机日历创建 bug 根因. SKILL.md 里有 "结合 system prompt
+        // 的当前时间锚点算出 ISO 8601" 这种指令, 但 round 1 prompt 一直没注入锚点
+        // (只有 secondary prompt 走 extractSystemBlock 时才注入). 结果 E4B 瞎编日期
+        // (2026-04-08 而非"明天"), E2B 直接输出中文字面 "明天下午2:00" 让 tool 解析
+        // 失败. harness agent-e2e 复现+证实. multimodal turn 不带 (那条路径不走 SKILL).
+        if !isMultimodalTurn {
+            prompt += "\n\n" + currentTimeAnchorBlock()
+        }
+
         prompt += "\n<turn|>\n"
 
         // 对话历史（动态深度，由 llm.safeHistoryDepth 控制）
@@ -390,9 +400,24 @@ struct PromptBuilder {
         userQuestion: String,
         currentImageCount: Int = 0
     ) -> String {
-        let systemBlock = extractSystemBlock(from: originalPrompt)
+        // 精简 system block — 不复用 originalPrompt 的完整 system (那个含 SKILL body
+        // 和 3 个 <tool_call>{...}</tool_call> 调用格式示例, 真机 + harness 2026-04-17
+        // 验证: E2B 看到示例就反复模仿输出 tool_call (5 轮重复 calendar-create-event),
+        // E4B 1 轮 tool + 1 轮总结正常. harness agent-probe-fix 验证: 用精简 system
+        // (只 persona + 时间锚点) E2B 输出 "明天下午两点的产品评审会议已为您安排好了"
+        // 自然总结, E4B 输出完全相同.
+        //
+        // Persona 用 defaultSystemPrompt (用户的 SYSPROMPT.md 自定义 persona 在
+        // round 1 已经被模型跟随, follow-up 阶段保留 PhoneClaw 通用 persona 即可).
+        let leanSystemBlock = """
+        <|turn>system
+        \(defaultSystemPrompt) 用中文回答, 简洁实用.
+        \(currentTimeAnchorBlock())
+        <turn|>
 
-        return systemBlock + extractHistoryBlock(from: originalPrompt) + """
+        """
+
+        return leanSystemBlock + extractHistoryBlock(from: originalPrompt) + """
         <|turn>user
         用户原始问题：
         \(userQuestion)\(imagePromptSuffix(count: currentImageCount))
