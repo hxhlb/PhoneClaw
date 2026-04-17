@@ -208,9 +208,13 @@ extension AgentEngine {
                 return nil
             }
 
+            // C1 (2026-04-17): content-type SKILL (例如 translate) `allowed-tools: []`,
+            // 没有 tool 可调 — 模型按 SKILL.md 指令直接生成结果. Planner step 的
+            // `tool` 字段 ignore. device-type SKILL 仍须有合法 tool.
             let allowedToolNames = Set(registeredTools(for: skillID).map(\.name))
-            guard allowedToolNames.contains(toolName) else {
-                return nil
+            let isContentSkill = allowedToolNames.isEmpty
+            if !isContentSkill {
+                guard allowedToolNames.contains(toolName) else { return nil }
             }
 
             guard step.dependsOn.allSatisfy({ previousStepIds.contains($0) }) else {
@@ -422,8 +426,52 @@ extension AgentEngine {
                 }
 
                 let displayName = loadedDisplayNames[step.skill] ?? findDisplayName(for: step.skill)
-                guard let cardIndex = skillCardIndices[step.skill],
-                      let tool = toolRegistry.find(name: step.tool) else {
+                guard let cardIndex = skillCardIndices[step.skill] else {
+                    finishPlanning(with: "⚠️ 当前规划步骤无效，已停止执行。")
+                    return true
+                }
+
+                // C1 (2026-04-17): content-type SKILL 没有 tool — 模型按 SKILL.md 指令直接
+                // 生成文本结果. 这一步绕开 tool 提取/调用, 走 buildContentStepPrompt 直接 LLM.
+                let skillDef = skillRegistry.getDefinition(step.skill)
+                let isContentStep = skillDef?.metadata.allowedTools.isEmpty == true
+                if isContentStep {
+                    let completedSummary = completedPlanSummary(completedSteps)
+                    let contentPrompt = PromptBuilder.buildContentStepPrompt(
+                        originalPrompt: prompt,
+                        userQuestion: userQuestion,
+                        skillInstructions: loadedInstructions[step.skill] ?? "",
+                        stepIntent: step.intent,
+                        completedStepSummary: completedSummary,
+                        currentImageCount: images.count
+                    )
+
+                    messages[cardIndex].update(role: .system, content: "executing:\(step.skill)", skillName: displayName)
+
+                    guard let rawOutput = await streamLLM(prompt: contentPrompt, images: images) else {
+                        messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
+                        finishPlanning(with: "⚠️ \(displayName) 步骤无回复，请重试。")
+                        return true
+                    }
+
+                    let cleanedOutput = cleanOutput(rawOutput)
+                    let summary = cleanedOutput.isEmpty ? "(无输出)" : cleanedOutput
+
+                    messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
+                    messages.append(ChatMessage(role: .skillResult, content: summary, skillName: step.skill))
+
+                    completedSteps.append(
+                        ExecutedPlanStep(
+                            step: step,
+                            toolResult: summary,
+                            toolResultSummary: summary
+                        )
+                    )
+                    toolResultsForAnswer.append((toolName: step.skill, result: summary))
+                    continue
+                }
+
+                guard let tool = toolRegistry.find(name: step.tool) else {
                     finishPlanning(with: "⚠️ 当前规划步骤无效，已停止执行。")
                     return true
                 }

@@ -748,6 +748,53 @@ struct PromptBuilder {
         """
     }
 
+    /// Planner v3 chained 任务里执行 **content-type SKILL** 一步 (例如 translate).
+    /// content SKILL 没 tool 可调, 模型按 SKILL.md 指令直接生成文本结果. 该结果
+    /// 既作为 R2 给用户看, 也作为后续 step 的 prior result.
+    ///
+    /// Prompt 结构: 复用 R1 system block (含 SKILL list, 但不复用 SKILL body
+    /// 因为我们这里显式给) + history + user turn 含: SKILL body + 完成步骤摘要 +
+    /// 当前 step intent + 用户原问.
+    static func buildContentStepPrompt(
+        originalPrompt: String,
+        userQuestion: String,
+        skillInstructions: String,
+        stepIntent: String,
+        completedStepSummary: String = "",
+        currentImageCount: Int = 0
+    ) -> String {
+        let systemBlock = extractSystemBlock(from: originalPrompt)
+
+        let completedBlock: String
+        if completedStepSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            completedBlock = ""
+        } else {
+            completedBlock = """
+
+                已完成步骤的结果 (按需引用):
+                \(completedStepSummary)
+
+                """
+        }
+
+        return systemBlock + extractHistoryBlock(from: originalPrompt) + """
+        <|turn>user
+        用户原问题:
+        \(userQuestion)\(imagePromptSuffix(count: currentImageCount))
+
+        当前步骤目标: \(stepIntent)
+
+        要求按下面 Skill 指令处理 (这一步没有 tool 可调, 你直接给最终文本结果):
+
+        \(skillInstructions)
+        \(completedBlock)
+        请直接输出最终结果文本, 不要 emit `<tool_call>`, 不要解释思路, 不要 Markdown 代码块.
+        <turn|>
+        <|turn>model
+
+        """
+    }
+
     static func buildMultiToolAnswerPrompt(
         originalPrompt: String,
         toolResults: [(toolName: String, result: String)],
