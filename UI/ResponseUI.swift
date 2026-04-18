@@ -62,6 +62,11 @@ struct AIResponseView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.leading, 4)
+                        // Suppress layout jumps during streaming —
+                        // MarkdownUI re-parses AST on every text update,
+                        // causing headers/lists to "pop in" with animation.
+                        .animation(nil, value: text)
+                        .id(block.isThinking ? "streaming" : text)
                 }
 
                 if let onRetry, !block.isThinking {
