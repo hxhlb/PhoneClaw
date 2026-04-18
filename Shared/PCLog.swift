@@ -55,11 +55,11 @@ enum PCLog {
 
     static func perf(
         ttftMs: Int,
-        decodeTokens: Int,
-        decodeTps: Double,
+        chunks: Int,
+        chunksPerSec: Double,
         headroomMB: Int
     ) {
-        logger.info("[Perf] ttft_ms=\(ttftMs) decode_tokens=\(decodeTokens) decode_tps=\(String(format: "%.1f", decodeTps)) headroom_mb=\(headroomMB)")
+        logger.info("[Perf] ttft_ms=\(ttftMs) chunks=\(chunks) chunks_per_sec=\(String(format: "%.1f", chunksPerSec)) headroom_mb=\(headroomMB)")
     }
 
     // MARK: - [Warn] Actionable warnings

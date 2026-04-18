@@ -211,8 +211,8 @@ final class LiteRTBackend: InferenceService {
                     // internal benchmark; here we emit aggregate decode stats.
                     PCLog.perf(
                         ttftMs: Int(self.stats.ttftMs),
-                        decodeTokens: tokenCount,
-                        decodeTps: self.stats.tokensPerSec,
+                        chunks: tokenCount,
+                        chunksPerSec: self.stats.tokensPerSec,
                         headroomMB: MemoryStats.headroomMB
                     )
                 }
