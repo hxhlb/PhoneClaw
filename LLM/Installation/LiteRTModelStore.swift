@@ -68,7 +68,7 @@ final class LiteRTModelStore: ModelInstaller {
                     // HTTP 状态校验 — 防止 404/403 错误页被当作模型文件保存
                     if let httpResponse = response as? HTTPURLResponse,
                        !(200..<300).contains(httpResponse.statusCode) {
-                        throw DownloadError.httpStatus(httpResponse.statusCode)
+                        throw LiteRTDownloadError.httpStatus(httpResponse.statusCode)
                     }
 
                     let totalSize = (response as? HTTPURLResponse)
@@ -117,7 +117,7 @@ final class LiteRTModelStore: ModelInstaller {
                     if model.expectedFileSize > 0, actualSize < model.expectedFileSize / 2 {
                         // 实际大小不到预期的一半 — 明显不完整
                         try? FileManager.default.removeItem(at: tempURL)
-                        throw DownloadError.invalidResponse
+                        throw LiteRTDownloadError.invalidResponse
                     }
 
                     // 移动到最终位置
@@ -193,7 +193,7 @@ final class LiteRTModelStore: ModelInstaller {
 
 // MARK: - Download Error
 
-enum DownloadError: LocalizedError {
+enum LiteRTDownloadError: LocalizedError {
     case httpStatus(Int)
     case invalidResponse
 

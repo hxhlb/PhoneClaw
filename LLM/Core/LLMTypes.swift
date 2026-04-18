@@ -66,7 +66,7 @@ public struct AudioInput: Sendable {
     }
 
     /// 从 AudioCaptureSnapshot 构造 (替代 UserInput.Audio.from(snapshot:))
-    public static func from(snapshot: AudioCaptureSnapshot) -> AudioInput {
+    static func from(snapshot: AudioCaptureSnapshot) -> AudioInput {
         AudioInput(
             samples: snapshot.pcm,
             sampleRate: snapshot.sampleRate,

@@ -105,7 +105,8 @@ public extension InferenceService {
                     fullResponse += token
                     await MainActor.run { onToken(token) }
                 }
-                await MainActor.run { onComplete(.success(fullResponse)) }
+                let completedResponse = fullResponse
+                await MainActor.run { onComplete(.success(completedResponse)) }
             } catch {
                 await MainActor.run { onComplete(.failure(error)) }
             }
@@ -130,7 +131,8 @@ public extension InferenceService {
                     fullResponse += token
                     await MainActor.run { onToken(token) }
                 }
-                await MainActor.run { onComplete(.success(fullResponse)) }
+                let completedResponse = fullResponse
+                await MainActor.run { onComplete(.success(completedResponse)) }
             } catch {
                 await MainActor.run { onComplete(.failure(error)) }
             }

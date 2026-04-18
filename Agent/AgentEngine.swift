@@ -84,6 +84,7 @@ class AgentEngine {
         }
     }
     var isProcessing = false
+    private var didSetup = false
     var config = ModelConfig()
     var sessionSummaries: [ChatSessionSummary] = []
     var currentSessionID = UUID()
@@ -125,13 +126,24 @@ class AgentEngine {
         catalog: ModelCatalog? = nil,
         installer: ModelInstaller? = nil
     ) {
-        let litertCatalog = LiteRTCatalog()
+        let litertCatalog = (catalog as? LiteRTCatalog) ?? LiteRTCatalog()
         let litertStore = LiteRTModelStore()
-        self.inference = inference ?? LiteRTBackend(modelPathResolver: { modelID in
-            guard let desc = litertCatalog.availableModels.first(where: { $0.id == modelID }) else { return nil }
-            return litertStore.artifactPath(for: desc)
-        })
-        self.catalog = catalog ?? litertCatalog
+        let resolvedCatalog = litertCatalog
+        self.inference = inference ?? LiteRTBackend(
+            modelPathResolver: { modelID in
+                guard let desc = resolvedCatalog.availableModels.first(where: { $0.id == modelID }) else { return nil }
+                return litertStore.artifactPath(for: desc)
+            },
+            onModelLoaded: { [weak resolvedCatalog] modelID in
+                if let desc = ModelDescriptor.allModels.first(where: { $0.id == modelID }) {
+                    resolvedCatalog?.markLoaded(desc)
+                }
+            },
+            onModelUnloaded: { [weak resolvedCatalog] in
+                resolvedCatalog?.markUnloaded()
+            }
+        )
+        self.catalog = catalog ?? resolvedCatalog
         self.installer = installer ?? litertStore
         loadSkillEntries()
         currentSessionID =
@@ -190,6 +202,9 @@ class AgentEngine {
     var defaultSystemPrompt: String { kDefaultSystemPrompt }
 
     func setup() {
+        guard !didSetup else { return }
+        didSetup = true
+
         applyModelSelection()
         installer.refreshInstallStates()
         loadSystemPrompt()       // 从 SYSPROMPT.md 注入 system prompt
@@ -316,9 +331,9 @@ class AgentEngine {
         } else {
             normalizedText = trimmed
         }
-        let requiresMultimodal = !attachments.isEmpty || audioAttachment != nil
+        let requiresMultimodal = !attachments.isEmpty || audioInput != nil
         guard !isProcessing else { return }
-        guard !normalizedText.isEmpty || !attachments.isEmpty || audioAttachment != nil else { return }
+        guard !normalizedText.isEmpty || !attachments.isEmpty || audioInput != nil else { return }
         messages.append(
             ChatMessage(
                 role: .user,
@@ -407,24 +422,17 @@ class AgentEngine {
             // 避免任何 system 框架把小模型带进"请提供图片"漂移.
             let systemPrompt = PromptBuilder.multimodalSystemPrompt(
                 hasImages: !promptImages.isEmpty,
-                hasAudio: audioAttachment != nil
+                hasAudio: audioInput != nil,
+                enableThinking: config.enableThinking
             )
-            var multimodalChat: [Chat.Message] = []
-            if !systemPrompt.isEmpty {
-                multimodalChat.append(.system(systemPrompt))
-            }
-            multimodalChat.append(
-                .user(
-                    normalizedText,
-                    images: promptImages.map { .ciImage($0) },
-                    audios: audioAttachment.map { [$0] } ?? []
-                )
-            )
-            let multimodalContext: [String: any Sendable]? =
-                config.enableThinking ? ["enable_thinking": true] : nil
             var multimodalBuffer = ""
 
-            llm.generateStream(chat: multimodalChat, additionalContext: multimodalContext) { [weak self] token in
+            inference.generateMultimodal(
+                images: promptImages,
+                audios: audioInput.map { [$0] } ?? [],
+                prompt: normalizedText,
+                systemPrompt: systemPrompt
+            ) { [weak self] token in
                 guard let self = self,
                       self.messages.indices.contains(msgIndex) else { return }
                 multimodalBuffer += token
@@ -568,38 +576,39 @@ class AgentEngine {
 
                 let cleaned = self.cleanOutputStreaming(buffer)
                 if !cleaned.isEmpty {
-                    self.messages[msgIndex].update(content: cleaned)
+                self.messages[msgIndex].update(content: cleaned)
                 }
             },
             onComplete: { [weak self] result in
-            guard let self = self else { return }
-            defer { self.isProcessing = false }
-            guard self.messages.indices.contains(msgIndex) else { return }
-            switch result {
-            case .success(let fullText):
-                log("[Agent] 1st raw: \(fullText.prefix(300))")
+                guard let self = self else { return }
+                defer { self.isProcessing = false }
+                guard self.messages.indices.contains(msgIndex) else { return }
+                switch result {
+                case .success(let fullText):
+                    log("[Agent] 1st raw: \(fullText.prefix(300))")
 
-                if self.parseToolCall(fullText) != nil {
-                    self.messages[msgIndex].update(content: "")
-                    Task {
-                        await self.executeToolChain(
-                            prompt: streamingPrompt,
-                            fullText: fullText,
-                            userQuestion: normalizedText,
-                            images: promptImages
+                    if self.parseToolCall(fullText) != nil {
+                        self.messages[msgIndex].update(content: "")
+                        Task {
+                            await self.executeToolChain(
+                                prompt: streamingPrompt,
+                                fullText: fullText,
+                                userQuestion: normalizedText,
+                                images: promptImages
+                            )
+                        }
+                        return
+                    } else {
+                        let cleaned = self.cleanOutput(fullText)
+                        self.messages[msgIndex].update(
+                            content: cleaned.isEmpty ? "（无回复）" : cleaned
                         )
                     }
-                    return
-                } else {
-                    let cleaned = self.cleanOutput(fullText)
-                    self.messages[msgIndex].update(
-                        content: cleaned.isEmpty ? "（无回复）" : cleaned
-                    )
+                case .failure(let error):
+                    self.messages[msgIndex].update(role: .system, content: "❌ \(error.localizedDescription)")
                 }
-            case .failure(let error):
-                self.messages[msgIndex].update(role: .system, content: "❌ \(error.localizedDescription)")
             }
-        }
+        )
     }
 
     // MARK: - Skill 结果后的后续推理（支持多轮工具链）
@@ -655,7 +664,8 @@ class AgentEngine {
                 if !cleaned.isEmpty && self.messages[msgIndex].role == .assistant {
                     self.messages[msgIndex].update(content: cleaned)
                 }
-            } onComplete: { [weak self] result in
+            },
+            onComplete: { [weak self] result in
                 guard let self = self else {
                     continuation.resume(returning: nil)
                     return
@@ -671,6 +681,7 @@ class AgentEngine {
                     continuation.resume(returning: nil)
                 }
             }
+            )
         }
     }
 

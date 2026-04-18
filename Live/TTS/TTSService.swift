@@ -43,6 +43,14 @@ class TTSService {
     // MARK: - Initialize
 
     func initialize() async {
+        #if targetEnvironment(simulator)
+        print("[TTS] Simulator build: using system TTS")
+        backend = "system"
+        isAvailable = true
+        state = .ready
+        return
+        #endif
+
         state = .loading
         print("[TTS] Initializing sherpa-onnx + keqing...")
 

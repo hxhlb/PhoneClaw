@@ -44,11 +44,22 @@ final class LiteRTBackend: InferenceService {
     /// 模型文件路径解析 — 由外部 (ModelInstaller) 提供
     private let modelPathResolver: (String) -> URL?
 
+    /// 加载成功后回调 (modelID) — 让 catalog 同步 loadedModel
+    private let onModelLoaded: ((String) -> Void)?
+    /// 卸载后回调 — 让 catalog 清 loadedModel
+    private let onModelUnloaded: (() -> Void)?
+
     // MARK: - Init
 
     /// - Parameter modelPathResolver: 给定 modelID 返回 .litertlm 文件的 URL (nil = 未安装)
-    init(modelPathResolver: @escaping (String) -> URL?) {
+    init(
+        modelPathResolver: @escaping (String) -> URL?,
+        onModelLoaded: ((String) -> Void)? = nil,
+        onModelUnloaded: (() -> Void)? = nil
+    ) {
         self.modelPathResolver = modelPathResolver
+        self.onModelLoaded = onModelLoaded
+        self.onModelUnloaded = onModelUnloaded
         self.stats.backend = "litert-cpu"
     }
 
@@ -107,6 +118,7 @@ final class LiteRTBackend: InferenceService {
             let descriptor = ModelDescriptor.allModels.first { $0.id == modelID }
             statusMessage = "已加载 \(descriptor?.displayName ?? modelID)"
             print("[LiteRT] Model loaded in \(String(format: "%.0f", elapsed))ms")
+            onModelLoaded?(modelID)
         } catch {
             isLoading = false
             isLoaded = false
@@ -127,6 +139,7 @@ final class LiteRTBackend: InferenceService {
         isLoaded = false
         isGenerating = false
         statusMessage = "等待加载模型..."
+        onModelUnloaded?()
     }
 
     func cancel() {

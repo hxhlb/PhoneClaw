@@ -552,7 +552,7 @@ class LiveModeEngine {
         Task { [weak self] in
             guard let self else { return }
             await self.ttsQueue?.reset()
-            self.llm?.cancel()
+            self.inference?.cancel()
         }
     }
 
@@ -721,7 +721,7 @@ class LiveModeEngine {
     /// immediately while old assistant output is cancelled in the background.
     private func cancelActiveGeneration() async {
         turnGeneration &+= 1
-        llm?.cancel()
+        inference?.cancel()
         stopSynthesisPipeline()
         await ttsQueue?.flush()
         cancelCurrentTurnPreview()
@@ -837,7 +837,7 @@ class LiveModeEngine {
 
         // ── 单轮处理: 委托给 LiveTurnProcessor ──────────────────────────
         //
-        // 原本这里直接调 `llm.generateStream(chat: chatMessages)` 走 chat path,
+        // 原本这里直接调 `inference.generate(chat: ...)` 走 chat path,
         // 但 harness (2026-04-16) 实测在 Gemma 4 上 system role 被 applyChatTemplate
         // 稀释 — E2B 丢 persona (自称"大型语言模型"), marker 失效, 简短约束失控.
         //
@@ -903,10 +903,10 @@ class LiveModeEngine {
                                 sawCompleteMarker = true   // ✓, 继续接 speechToken 作为正常回答
                             case .interrupted:
                                 incompleteType = .short
-                                self.llm?.cancel()
+                                self.inference?.cancel()
                             case .thinking:
                                 incompleteType = .long
-                                self.llm?.cancel()
+                                self.inference?.cancel()
                             }
 
                         case .speechToken(let delta):
@@ -946,7 +946,7 @@ class LiveModeEngine {
                             sentenceBuffer = ""
                             rawBuffer = fallback   // 防 history append 时 lastReply 是空导致 history 不记 turn
                             self.synthesisPipeline?.yield(fallback)
-                            self.llm?.cancel()
+                            self.inference?.cancel()
 
                         case .skillResult(let summary):
                             // 同上, 阶段 3 才会触发 — 第二轮 LLM 对工具结果的口语总结.

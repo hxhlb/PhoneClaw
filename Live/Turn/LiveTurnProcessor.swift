@@ -73,8 +73,6 @@ final class LiveTurnProcessor {
         userSystemPrompt: String?
     ) -> AsyncThrowingStream<LiveOutputEvent, Error> {
 
-        let tokenStream: AsyncThrowingStream<String, Error>
-
         // 构造 prompt — vision 和纯文本都走 buildLiveVoicePrompt,
         // 区别在于 hasVision 标志和是否传 frame 给推理后端.
         let rawTextPrompt = PromptBuilder.buildLiveVoicePrompt(

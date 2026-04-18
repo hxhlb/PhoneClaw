@@ -37,7 +37,7 @@ public struct BundledModelOption: Identifiable, Hashable, Sendable {
 /// MLX GPU inference service for Gemma 4.
 /// Forces MLX Metal GPU path — no CPU fallback.
 @Observable
-public class MLXLocalLLMService: LLMEngine {
+public class MLXLocalLLMService: LLMEngine, InferenceService {
     private static var isSimulatorRuntime: Bool {
         #if targetEnvironment(simulator)
         true
@@ -194,6 +194,14 @@ public class MLXLocalLLMService: LLMEngine {
         self.init(selectedModelID: nil)
     }
 
+    private static func makeMLXAudio(from audio: AudioInput) -> UserInput.Audio {
+        .pcm(.init(
+            samples: audio.samples,
+            sampleRate: audio.sampleRate,
+            channelCount: audio.channelCount
+        ))
+    }
+
     func loadModel() {
         currentLoadTask?.cancel()
         currentLoadTask = Task { [weak self] in
@@ -260,7 +268,8 @@ public class MLXLocalLLMService: LLMEngine {
                 }
 
                 await MainActor.run {
-                    onComplete(.success(fullResponse))
+                    let completedResponse = fullResponse
+                    onComplete(.success(completedResponse))
                 }
             } catch {
                 await MainActor.run {
@@ -287,7 +296,8 @@ public class MLXLocalLLMService: LLMEngine {
                 }
 
                 await MainActor.run {
-                    onComplete(.success(fullResponse))
+                    let completedResponse = fullResponse
+                    onComplete(.success(completedResponse))
                 }
             } catch {
                 await MainActor.run {
@@ -315,7 +325,8 @@ public class MLXLocalLLMService: LLMEngine {
                 }
 
                 await MainActor.run {
-                    onComplete(.success(fullResponse))
+                    let completedResponse = fullResponse
+                    onComplete(.success(completedResponse))
                 }
             } catch {
                 await MainActor.run {
@@ -481,9 +492,50 @@ public class MLXLocalLLMService: LLMEngine {
             // Debug-only opt-in E2E path for live voice validation.
             // Never override the user's selected model, and only launch once
             // per process so reloads/model switches don't start a second audio loop.
-            Task { await LiveComponentTest.runLiveLoop(llm: self) }
+            Task { await LiveComponentTest.runLiveLoop(inference: self) }
         }
         #endif
+    }
+
+    public func load(modelID: String) async throws {
+        if let option = Self.availableModels.first(where: { $0.id == modelID }) {
+            if selectedModel.id != option.id {
+                selectedModel = option
+                if isLoaded || isLoading || modelContainer != nil {
+                    await prepareForReload()
+                }
+            }
+        }
+        try await load()
+        try await warmup()
+    }
+
+    public func generate(prompt: String) -> AsyncThrowingStream<String, Error> {
+        generateStream(prompt: prompt, images: [], audios: [])
+    }
+
+    public func generateMultimodal(
+        images: [CIImage],
+        audios: [AudioInput],
+        prompt: String,
+        systemPrompt: String
+    ) -> AsyncThrowingStream<String, Error> {
+        let mlxAudios = audios.map(Self.makeMLXAudio(from:))
+
+        if systemPrompt.isEmpty {
+            return generateStream(prompt: prompt, images: images, audios: mlxAudios)
+        }
+
+        let chatImages = images.map { UserInput.Image.ciImage($0) }
+        let chat: [Chat.Message] = [
+            .system(systemPrompt),
+            .user(prompt, images: chatImages, audios: mlxAudios),
+        ]
+        return generateStream(chat: chat)
+    }
+
+    public func generateRaw(text: String, images: [CIImage]) -> AsyncThrowingStream<String, Error> {
+        generateStream(rawText: text, images: images)
     }
 
     public func generateStream(
@@ -670,11 +722,11 @@ public class MLXLocalLLMService: LLMEngine {
                 let effectiveMaxOutputTokens: Int = {
                     // 多模态不再有独立的静态 token 上限 — 完全依赖 headroomFloorMB 运行时检测。
                     // 只保留 thinking/text budget 的公式约束和 UI 滑块上限。
-                    let thinkingCap = thinkingBudget?.maxOutputTokens ?? maxOutputTokens
-                    let textCap = textBudget?.maxOutputTokens ?? maxOutputTokens
-                    return min(maxOutputTokens, thinkingCap, textCap)
+                    let thinkingCap = thinkingBudget?.maxOutputTokens ?? self.maxOutputTokens
+                    let textCap = textBudget?.maxOutputTokens ?? self.maxOutputTokens
+                    return min(self.maxOutputTokens, thinkingCap, textCap)
                 }()
-                var resolvedMaxOutputTokens = effectiveMaxOutputTokens
+                let resolvedMaxOutputTokens = effectiveMaxOutputTokens
 
                 self.isGenerating = true
                 self.cancelled = false
@@ -731,9 +783,9 @@ public class MLXLocalLLMService: LLMEngine {
                         // 吞吐降 ~10-15% (更多 eval 间隔). 无功能损失.
                         let generateParams = GenerateParameters(
                             maxTokens: resolvedMaxOutputTokens,
-                            temperature: samplingTemperature,
-                            topP: samplingTopP,
-                            topK: samplingTopK,
+                            temperature: self.samplingTemperature,
+                            topP: self.samplingTopP,
+                            topK: self.samplingTopK,
                             prefillStepSize: 128
                         )
 
