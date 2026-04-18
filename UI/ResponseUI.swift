@@ -120,7 +120,7 @@ private struct StreamingMarkdownView: View {
                     .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
-                    .animation(nil, value: pendingLine)
+                    .transition(.opacity.animation(.easeIn(duration: 0.15)))
             }
         }
         .onAppear {
