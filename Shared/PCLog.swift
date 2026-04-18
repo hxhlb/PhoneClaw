@@ -14,7 +14,7 @@ import os
 //   - Each category emits at most ONE line per event
 //   - Key-value format for machine parseability
 //   - No user content in default output (privacy)
-//   - LiteRT runtime noise suppressed via TF_CPP_MIN_LOG_LEVEL
+//   - Single output channel: os.Logger only (Xcode console shows it)
 
 enum PCLog {
 
@@ -27,21 +27,15 @@ enum PCLog {
         backend: String = "litert-cpu",
         loadMs: Double
     ) {
-        let msg = "[Model] phase=load model=\(modelID) backend=\(backend) load_ms=\(Int(loadMs)) status=ok"
-        logger.info("\(msg)")
-        print(msg)
+        logger.info("[Model] phase=load model=\(modelID) backend=\(backend) load_ms=\(Int(loadMs)) status=ok")
     }
 
     static func modelLoadFailed(modelID: String, reason: String) {
-        let msg = "[Model] phase=load model=\(modelID) status=failed reason=\(reason)"
-        logger.error("\(msg)")
-        print(msg)
+        logger.error("[Model] phase=load model=\(modelID) status=failed reason=\(reason)")
     }
 
     static func modelUnloaded() {
-        let msg = "[Model] phase=unload status=ok"
-        logger.info("\(msg)")
-        print(msg)
+        logger.info("[Model] phase=unload status=ok")
     }
 
     // MARK: - [Turn] Per-turn routing summary
@@ -54,9 +48,7 @@ enum PCLog {
         historyDepth: Int,
         headroomMB: Int
     ) {
-        let msg = "[Turn] route=\(route) skills=\(skillCount) multimodal=\(multimodal) input_chars=\(inputChars) history_depth=\(historyDepth) headroom_mb=\(headroomMB)"
-        logger.info("\(msg)")
-        print(msg)
+        logger.info("[Turn] route=\(route) skills=\(skillCount) multimodal=\(multimodal) input_chars=\(inputChars) history_depth=\(historyDepth) headroom_mb=\(headroomMB)")
     }
 
     // MARK: - [Perf] Inference benchmark
@@ -69,25 +61,19 @@ enum PCLog {
         decodeTps: Double,
         headroomMB: Int
     ) {
-        let msg = "[Perf] ttft_ms=\(ttftMs) prefill_tokens=\(prefillTokens) prefill_tps=\(String(format: "%.1f", prefillTps)) decode_tokens=\(decodeTokens) decode_tps=\(String(format: "%.1f", decodeTps)) headroom_mb=\(headroomMB)"
-        logger.info("\(msg)")
-        print(msg)
+        logger.info("[Perf] ttft_ms=\(ttftMs) prefill_tokens=\(prefillTokens) prefill_tps=\(String(format: "%.1f", prefillTps)) decode_tokens=\(decodeTokens) decode_tps=\(String(format: "%.1f", decodeTps)) headroom_mb=\(headroomMB)")
     }
 
     // MARK: - [Warn] Actionable warnings
 
     static func warn(_ tag: String, detail: String = "") {
         let suffix = detail.isEmpty ? "" : " \(detail)"
-        let msg = "[Warn] \(tag)\(suffix)"
-        logger.warning("\(msg)")
-        print(msg)
+        logger.warning("[Warn] \(tag)\(suffix)")
     }
 
     static func error(_ tag: String, detail: String = "") {
         let suffix = detail.isEmpty ? "" : " \(detail)"
-        let msg = "[Error] \(tag)\(suffix)"
-        logger.error("\(msg)")
-        print(msg)
+        logger.error("[Error] \(tag)\(suffix)")
     }
 
     // MARK: - Suppress LiteRT Runtime Noise

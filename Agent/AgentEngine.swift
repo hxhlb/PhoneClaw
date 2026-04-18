@@ -450,7 +450,9 @@ class AgentEngine {
                 guard self.messages.indices.contains(msgIndex) else { return }
                 switch result {
                 case .success(let fullText):
+                    #if DEBUG
                     log("[Agent] 1st raw: \(fullText.prefix(300))")
+                    #endif
                     let cleaned = self.cleanOutput(fullText)
                     self.messages[msgIndex].update(
                         content: cleaned.isEmpty ? "（无回复）" : cleaned
@@ -523,7 +525,9 @@ class AgentEngine {
         )
         let plannerInputPrompt: String = lightPrompt
         let streamingPrompt: String = agentPrompt ?? lightPrompt
+        #if DEBUG
         log("[Agent] text prompt mode=\(shouldUseFullAgentPrompt ? "agent" : "light"), planner-input-chars=\(plannerInputPrompt.count), streaming-chars=\(streamingPrompt.count), skills=\(activeSkillInfos.count)")
+        #endif
 
         if shouldUsePlanner {
             log("[Agent] planner path triggered revision=\(plannerRevision)")
@@ -591,7 +595,9 @@ class AgentEngine {
                 guard self.messages.indices.contains(msgIndex) else { return }
                 switch result {
                 case .success(let fullText):
+                    #if DEBUG
                     log("[Agent] 1st raw: \(fullText.prefix(300))")
+                    #endif
 
                     if self.parseToolCall(fullText) != nil {
                         self.messages[msgIndex].update(content: "")
