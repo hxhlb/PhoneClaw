@@ -75,7 +75,7 @@ final class LiveTurnProcessor {
 
         // 构造 prompt — vision 和纯文本都走 buildLiveVoicePrompt,
         // 区别在于 hasVision 标志和是否传 frame 给推理后端.
-        let rawTextPrompt = PromptBuilder.buildLiveVoicePrompt(
+        let fullPrompt = PromptBuilder.buildLiveVoicePrompt(
             userSystemPrompt: userSystemPrompt,
             locale: locale,
             history: history.map { (role: $0.role.rawValue, content: $0.content) },
@@ -87,8 +87,27 @@ final class LiveTurnProcessor {
         )
 
         let images: [CIImage] = frame.map { [$0] } ?? []
-        let tokenStream = inference.generateRaw(text: rawTextPrompt, images: images)
 
+        // KV cache delta 路径: 有图时走 multimodal API (不支持 session delta),
+        // 纯文本时检查 LiteRT backend 的 lastModelOutput 决定走完整 prompt 还是 delta.
+        let rawTextPrompt: String
+        if images.isEmpty,
+           let litert = inference as? LiteRTBackend,
+           litert.kvSessionActive,
+           !litert.lastModelOutput.isEmpty
+        {
+            // Follow-up turn: 只传 delta (上轮 model 输出 + 新 user turn)
+            let cfg = locale.config
+            rawTextPrompt = PromptBuilder.buildDeltaTurnPrompt(
+                lastModelOutput: litert.lastModelOutput,
+                userMessage: transcript + cfg.userHint
+            )
+            print("[Live] KV cache delta mode: \(rawTextPrompt.count) chars (vs full \(fullPrompt.count) chars)")
+        } else {
+            rawTextPrompt = fullPrompt
+        }
+
+        let tokenStream = inference.generateRaw(text: rawTextPrompt, images: images)
         return makeEventStream(tokenStream: tokenStream)
     }
 

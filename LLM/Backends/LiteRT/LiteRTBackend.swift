@@ -355,9 +355,9 @@ final class LiteRTBackend: InferenceService {
 
     func generateRaw(text: String, images: [CIImage]) -> AsyncThrowingStream<String, Error> {
         if images.isEmpty {
-            // Live 每次传完整 prompt (非增量 delta), 必须走 one-shot,
-            // 否则会把完整 prompt 当 delta 追加到已有 session context 后面。
-            return generateOneShot(prompt: text)
+            // 纯文本 (Live 语音 + warmup): 走 persistent session (KV cache 复用).
+            // 调用方 (LiveTurnProcessor) 负责首轮传完整 prompt, 后续传 delta.
+            return generate(prompt: text)
         } else {
             // 有图: 走 Conversation API
             return generateMultimodal(
@@ -367,28 +367,6 @@ final class LiteRTBackend: InferenceService {
                 systemPrompt: ""
             )
         }
-    }
-
-    /// One-shot 推理: 创建临时 session, 不复用 KV cache。
-    /// Live 模式专用 (每轮传完整 prompt)。
-    /// 注意: LiteRTLM 同时只支持一个 session, 必须先关闭 persistent session。
-    private func generateOneShot(prompt: String) -> AsyncThrowingStream<String, Error> {
-        guard let engine, isLoaded else {
-            return AsyncThrowingStream { $0.finish(throwing: ModelBackendError.modelNotLoaded) }
-        }
-        // Close persistent session — LiteRTLM only allows one at a time.
-        // generateStreaming() internally creates its own temporary session.
-        if kvSessionActive {
-            engine.closeSession()
-            kvSessionActive = false
-            lastModelOutput = ""
-            print("[LiteRT] Persistent session closed for one-shot (Live mode)")
-        }
-        return engine.generateStreaming(
-            prompt: prompt,
-            temperature: samplingTemperature,
-            maxTokens: maxOutputTokens
-        )
     }
 
     // MARK: - Private Helpers

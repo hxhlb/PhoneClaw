@@ -376,6 +376,10 @@ class LiveModeEngine {
         let warmupTask: Task<Void, Never>? = {
             guard let inference = self.inference, inference.isLoaded else { return nil }
             return Task {
+                // Reset KV session for Live mode — close chat session, open fresh one.
+                if let litert = inference as? LiteRTBackend {
+                    await litert.resetKVSession()
+                }
                 let t0 = CFAbsoluteTimeGetCurrent()
                 let stream = inference.generate(prompt: "你好")
                 do {
@@ -384,6 +388,10 @@ class LiveModeEngine {
                     }
                 } catch {}
                 inference.cancel()
+                // Reset again — warmup polluted the session with "你好", start clean.
+                if let litert = inference as? LiteRTBackend {
+                    await litert.resetKVSession()
+                }
                 let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
                 print("[Live] ⚡ LLM warmup done in \(Int(ms))ms")
             }
