@@ -536,11 +536,10 @@ class AgentEngine {
         let streamingPrompt: String
         if let litert = inference as? LiteRTBackend,
            litert.kvSessionActive,
-           !litert.lastModelOutput.isEmpty,
-           agentPrompt == nil  // agent 路径暂不走 delta
+           !messages.isEmpty,            // 有历史 = 不是首轮
+           agentPrompt == nil            // agent 路径暂不走 delta
         {
             streamingPrompt = PromptBuilder.buildDeltaTurnPrompt(
-                lastModelOutput: litert.lastModelOutput,
                 userMessage: normalizedText,
                 currentImageCount: attachments.count,
                 enableThinking: config.enableThinking

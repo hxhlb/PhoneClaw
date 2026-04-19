@@ -873,15 +873,14 @@ struct PromptBuilder {
     // lastModelOutput 是上一轮 model 生成的完整文本。
 
     /// 构造增量 delta prompt (纯文本对话 follow-up)
-    /// 输入: 上轮 model 输出 + 新的 user 消息
-    /// 输出: 只包含增量部分的 prompt (不含 system block 和历史)
+    /// KV cache 已包含 model 输出 (生成的 token 逐个进入 cache)，
+    /// delta 只需: 关闭上轮 model turn + 新 user turn + 打开新 model turn。
     static func buildDeltaTurnPrompt(
-        lastModelOutput: String,
         userMessage: String,
         currentImageCount: Int = 0,
         enableThinking: Bool = false
     ) -> String {
-        var delta = lastModelOutput + "<turn|>\n"
+        var delta = "<turn|>\n"
         delta += "<|turn>user\n\(userMessage)\(imagePromptSuffix(count: currentImageCount))<turn|>\n"
         delta += "<|turn>model\n"
         if enableThinking {
