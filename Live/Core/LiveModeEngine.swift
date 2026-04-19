@@ -426,11 +426,21 @@ class LiveModeEngine {
             spoken = text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        // TTS 播放 → orb 全亮
-        turnPhase = .speaking
-        state = .speaking
-        statusMessage = ""
-        await tts.speak(spoken)
+        // TTS: 先合成 (orb 暗), 合成完后亮起 + 播放
+        print("[TTS] 🔊 [greeting] \"\(spoken.prefix(40))\"")
+        if let wavData = tts.synthesize(spoken) {
+            // 合成完成 → orb 亮起 → 播放
+            turnPhase = .speaking
+            state = .speaking
+            statusMessage = ""
+            await tts.playWAV(wavData)
+        } else {
+            // sherpa-onnx 合成失败, 走系统 TTS 兜底
+            turnPhase = .speaking
+            state = .speaking
+            statusMessage = ""
+            await tts.speakSystem(spoken)
+        }
         lastAssistantPlaybackEndTime = CFAbsoluteTimeGetCurrent()
 
         // 4. session 已有 context (system + greeting), 后续 turn 走 delta
