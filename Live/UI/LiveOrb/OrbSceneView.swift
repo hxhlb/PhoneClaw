@@ -87,16 +87,17 @@ struct OrbSceneView: UIViewRepresentable {
         @objc private func tick() {
             guard isReady, let webView else { return }
 
-            // 原版每帧直接读 analyser.data[n]，无节流、无版本比较。
-            // 这里每个 CADisplayLink tick 都推，保证 JS 侧每帧都有新数据。
-            // evaluateJavaScript fire-and-forget，不 await，不阻塞主线程。
             let input  = inputAnalyser?.snapshot3()  ?? (b0: 0, b1: 0, b2: 0, version: 0)
             let output = outputAnalyser?.snapshot3() ?? (b0: 0, b1: 0, b2: 0, version: 0)
 
+            // state → brightness: idle=0 (暗), 其他=1 (亮)
+            let brightness: Double = (state == .idle) ? 0.0 : 1.0
+
             let script = String(
-                format: "window.__orbUpdate(%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f);",
+                format: "window.__orbUpdate(%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f);",
                 input.b0,  input.b1,  input.b2,
-                output.b0, output.b1, output.b2
+                output.b0, output.b1, output.b2,
+                brightness
             )
             webView.evaluateJavaScript(script, completionHandler: nil)
         }
@@ -352,12 +353,13 @@ void main() {
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
+    const baseEmissiveIntensity = 1.2;
     const sphereMaterial = new THREE.MeshStandardMaterial({
       color: 0x2a1a08,
       metalness: 0.85,
       roughness: 0.25,
       emissive: 0x1a0f04,
-      emissiveIntensity: 1.2
+      emissiveIntensity: 0  // Start dark, native controls via brightness
     });
 
     sphereMaterial.onBeforeCompile = (shader) => {
@@ -414,15 +416,16 @@ void main() {
     const input  = { x: 0, y: 0, z: 0 };
     const output = { x: 0, y: 0, z: 0 };
     const target = { ix: 0, iy: 0, iz: 0, ox: 0, oy: 0, oz: 0 };
+    let targetBrightness = 0;
+    let currentBrightness = 0;
     const rotation = new THREE.Vector3(0, 0, 0);
     let prevTime = performance.now();
 
     // Native CADisplayLink 以 30Hz 推送目标值，JS 侧 60fps lerp 插值。
-    // 原版在同一 JS 帧内直读 AnalyserNode（零延迟），这里用 lerp 补偿
-    // evaluateJavaScript IPC bridge 的延迟和时序抖动。
-    window.__orbUpdate = (i0, i1, i2, o0, o1, o2) => {
+    window.__orbUpdate = (i0, i1, i2, o0, o1, o2, br) => {
       target.ix = i0; target.iy = i1; target.iz = i2;
       target.ox = o0; target.oy = o1; target.oz = o2;
+      targetBrightness = (br !== undefined) ? br : 1;
     };
 
     function animate() {
@@ -442,6 +445,12 @@ void main() {
       output.z += (target.oz - output.z) * k;
 
       backdrop.material.uniforms.rand.value = Math.random() * 10000;
+
+      // Smooth brightness transition (dark ↔ bright)
+      currentBrightness += (targetBrightness - currentBrightness) * 0.08;
+      sphereMaterial.emissiveIntensity = baseEmissiveIntensity * currentBrightness;
+      sphereMaterial.opacity = 0.15 + 0.85 * currentBrightness;
+      sphereMaterial.transparent = true;
 
       if (sphereMaterial.userData.shader) {
         // 对齐原版：1 + (0.2 * data[1]) / 255
