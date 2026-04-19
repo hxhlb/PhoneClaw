@@ -186,6 +186,7 @@ private enum OrbWebSource {
 </head>
 <body>
   <canvas id="orb"></canvas>
+  <div id="mask" style="position:absolute;inset:0;background:rgba(0,0,0,0.65);pointer-events:none;z-index:1;"></div>
   <script type="importmap">
     {
       "imports": {
@@ -359,7 +360,7 @@ void main() {
       metalness: 0.85,
       roughness: 0.25,
       emissive: 0x1a0f04,
-      emissiveIntensity: 0.15  // 初始微亮, native 通过 brightness 控制
+      emissiveIntensity: 1.2
     });
 
     sphereMaterial.onBeforeCompile = (shader) => {
@@ -416,18 +417,27 @@ void main() {
     const input  = { x: 0, y: 0, z: 0 };
     const output = { x: 0, y: 0, z: 0 };
     const target = { ix: 0, iy: 0, iz: 0, ox: 0, oy: 0, oz: 0 };
-    const baseDim = 0.12;  // 加载时的底亮度 (隐约可见金属球体)
-    let targetBrightness = baseDim;
-    let currentBrightness = baseDim;
+    const baseDim = 0.12;
+    let targetBrightness = 0;
+    let currentBrightness = 0;
     const rotation = new THREE.Vector3(0, 0, 0);
     let prevTime = performance.now();
 
-    // Native CADisplayLink 以 30Hz 推送目标值，JS 侧 60fps lerp 插值。
+    // 蒙版控制: TTS 播放后 1s 延迟, 然后 5s 淡出
+    const mask = document.getElementById('mask');
+    let maskOpacity = 0.65;  // 初始蒙版不透明度
+    let revealDelayFrames = -1;  // -1 = 未触发
+    const revealDelay = 60;  // 1s delay (60 frames at 60fps)
+    const revealDuration = 300;  // 5s ramp (300 frames at 60fps)
+    let revealProgress = 0;
+
     window.__orbUpdate = (i0, i1, i2, o0, o1, o2, br) => {
       target.ix = i0; target.iy = i1; target.iz = i2;
       target.ox = o0; target.oy = o1; target.oz = o2;
-      // brightness: 0 = 加载中 (用 baseDim), 1 = 全亮
-      targetBrightness = (br !== undefined && br > 0.5) ? 1.0 : baseDim;
+      if (br !== undefined && br > 0.5 && revealDelayFrames < 0) {
+        // TTS 开始播放 — 启动 1s 延迟计时
+        revealDelayFrames = 0;
+      }
     };
 
     function animate() {
@@ -448,18 +458,18 @@ void main() {
 
       backdrop.material.uniforms.rand.value = Math.random() * 10000;
 
-      // Smooth brightness transition: ~2s linear ramp (120 frames at 60fps)
-      // 匹配 TTS 播放时长, 让 "从暗到亮" 和 "听到声音" 在体感上同步
-      const brightnessSpeed = 0.008;  // 1/120 ≈ 2s
-      if (currentBrightness < targetBrightness) {
-        currentBrightness = Math.min(currentBrightness + brightnessSpeed, targetBrightness);
-      } else if (currentBrightness > targetBrightness) {
-        currentBrightness = Math.max(currentBrightness - brightnessSpeed * 3, targetBrightness);
+      // 蒙版控制: 1s delay + 5s 淡出
+      if (revealDelayFrames >= 0) {
+        revealDelayFrames++;
+        if (revealDelayFrames > revealDelay) {
+          revealProgress = Math.min(revealProgress + 1.0 / revealDuration, 1.0);
+          // smoothstep 缓动
+          const t = revealProgress;
+          const eased = t * t * (3 - 2 * t);
+          maskOpacity = 0.65 * (1.0 - eased);
+        }
       }
-      // easeInOut 曲线: smoothstep 让开头和结尾更平滑
-      const eased = currentBrightness * currentBrightness * (3 - 2 * currentBrightness);
-      sphereMaterial.emissiveIntensity = baseEmissiveIntensity * eased;
-      sphereMaterial.envMapIntensity = eased;
+      mask.style.opacity = maskOpacity;
 
       if (sphereMaterial.userData.shader) {
         // 对齐原版：1 + (0.2 * data[1]) / 255
