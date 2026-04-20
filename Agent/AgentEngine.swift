@@ -22,7 +22,7 @@ class ModelConfig {
     static let selectedModelDefaultsKey = "PhoneClaw.selectedModelID"
     static let enableThinkingDefaultsKey = "PhoneClaw.enableThinking"
 
-    var maxTokens = 4000
+    var maxTokens = 8192
     var topK = 64
     var topP = 0.95
     var temperature = 1.0
