@@ -145,59 +145,58 @@ final class AudioCaptureService {
     }
 
     func consumeLatestSnapshot() -> AudioCaptureSnapshot? {
-        let snapshot = latestSnapshot()
+        let raw = rawSnapshot()
         resetCaptureState()
         clearStatus()
-        return snapshot
+        guard let raw else { return nil }
+        return resampleTo16kHz(raw)
     }
 
     func latestSnapshot() -> AudioCaptureSnapshot? {
+        rawSnapshot()
+    }
+
+    /// 原始 PCM snapshot（不重采样，用于 UI 展示时长/状态）
+    private func rawSnapshot() -> AudioCaptureSnapshot? {
         pcmLock.lock()
         let pcm = rollingPCM
         pcmLock.unlock()
 
         guard !pcm.isEmpty, sampleRate > 0 else { return nil }
-
-        // 如果已经是 16kHz 则直接返回
-        let targetRate = Self.preferredSampleRate  // 16000
-        if abs(sampleRate - targetRate) < 1 {
-            return AudioCaptureSnapshot(
-                pcm: pcm,
-                sampleRate: sampleRate,
-                channelCount: 1,
-                duration: Double(pcm.count) / sampleRate
-            )
-        }
-
-        // 用 AVAudioConverter 重采样到 16kHz (与文件导入路径一致)
-        guard let srcFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
+        return AudioCaptureSnapshot(
+            pcm: pcm,
             sampleRate: sampleRate,
-            channels: 1,
-            interleaved: false
+            channelCount: 1,
+            duration: Double(pcm.count) / sampleRate
+        )
+    }
+
+    /// AVAudioConverter 重采样到 16kHz（Gemma 4 要求）
+    private func resampleTo16kHz(_ snapshot: AudioCaptureSnapshot) -> AudioCaptureSnapshot {
+        let targetRate: Double = Self.preferredSampleRate  // 16000
+        let srcRate = snapshot.sampleRate
+
+        // 已经是 16kHz
+        if abs(srcRate - targetRate) < 1 { return snapshot }
+
+        guard let srcFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: srcRate, channels: 1, interleaved: false
         ), let dstFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: targetRate,
-            channels: 1,
-            interleaved: false
-        ) else {
-            return AudioCaptureSnapshot(pcm: pcm, sampleRate: sampleRate, channelCount: 1, duration: Double(pcm.count) / sampleRate)
+            commonFormat: .pcmFormatFloat32, sampleRate: targetRate, channels: 1, interleaved: false
+        ), let converter = AVAudioConverter(from: srcFormat, to: dstFormat) else {
+            return snapshot
         }
 
-        let srcFrameCount = AVAudioFrameCount(pcm.count)
-        guard let srcBuffer = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: srcFrameCount),
-              let converter = AVAudioConverter(from: srcFormat, to: dstFormat) else {
-            return AudioCaptureSnapshot(pcm: pcm, sampleRate: sampleRate, channelCount: 1, duration: Double(pcm.count) / sampleRate)
+        let srcFrameCount = AVAudioFrameCount(snapshot.pcm.count)
+        guard let srcBuffer = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: srcFrameCount) else {
+            return snapshot
         }
-
-        // 复制 PCM 到 buffer
         srcBuffer.frameLength = srcFrameCount
-        memcpy(srcBuffer.floatChannelData![0], pcm, pcm.count * MemoryLayout<Float>.size)
+        memcpy(srcBuffer.floatChannelData![0], snapshot.pcm, snapshot.pcm.count * MemoryLayout<Float>.size)
 
-        let ratio = targetRate / sampleRate
-        let dstFrameCount = AVAudioFrameCount(Double(srcFrameCount) * ratio)
+        let dstFrameCount = AVAudioFrameCount(Double(srcFrameCount) * targetRate / srcRate)
         guard let dstBuffer = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: dstFrameCount) else {
-            return AudioCaptureSnapshot(pcm: pcm, sampleRate: sampleRate, channelCount: 1, duration: Double(pcm.count) / sampleRate)
+            return snapshot
         }
 
         var error: NSError?
@@ -206,20 +205,17 @@ final class AudioCaptureService {
             return srcBuffer
         }
 
-        if let error {
-            print("[AudioCapture] Resample failed: \(error), using raw PCM")
-            return AudioCaptureSnapshot(pcm: pcm, sampleRate: sampleRate, channelCount: 1, duration: Double(pcm.count) / sampleRate)
+        guard error == nil, let channelData = dstBuffer.floatChannelData else {
+            return snapshot
         }
 
-        let resampledCount = Int(dstBuffer.frameLength)
-        let resampled = Array(UnsafeBufferPointer(start: dstBuffer.floatChannelData![0], count: resampledCount))
-        print("[AudioCapture] Resampled \(pcm.count) @ \(Int(sampleRate))Hz → \(resampledCount) @ \(Int(targetRate))Hz")
-
+        let count = Int(dstBuffer.frameLength)
+        let resampled = Array(UnsafeBufferPointer(start: channelData[0], count: count))
         return AudioCaptureSnapshot(
             pcm: resampled,
             sampleRate: targetRate,
             channelCount: 1,
-            duration: Double(resampledCount) / targetRate
+            duration: Double(count) / targetRate
         )
     }
 

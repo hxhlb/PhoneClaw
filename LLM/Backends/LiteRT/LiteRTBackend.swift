@@ -432,27 +432,12 @@ final class LiteRTBackend: InferenceService {
                     print("[LiteRT] images=\(imagesData.count) audios=\(audios.count) promptChars=\(fullPrompt.count) prompt=\"\(fullPrompt.prefix(120))\"")
                     #endif
 
-                    // 根据媒体类型选择正确的 API:
-                    // - audio-only → Conversation API (openConversation + conversationSendStreaming)
-                    //   standalone audioStreaming() 在 closeSession 后引擎状态可能不对
-                    // - image (或 image+audio) → engine.multimodalStreaming
+                    // audio-only → engine.audio(format:.wav) 专用 API
+                    // image / mixed → engine.multimodalStreaming
 
                     if imagesData.isEmpty, !audiosData.isEmpty {
-                        // Audio-only
-                        let wavData = audiosData[0]
-
-                        // DEBUG: dump WAV to Documents for inspection
-                        #if DEBUG
-                        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-                        let debugWav = docs.appendingPathComponent("debug_audio.wav")
-                        try? wavData.write(to: debugWav)
-                        print("[LiteRT] 🔊 WAV dumped to \(debugWav.path) (\(wavData.count) bytes)")
-                        #endif
-
-                        // 用 non-streaming audio API (带 format: .wav 参数)
-                        print("[LiteRT] Using engine.audio() with format: .wav")
                         let text = try await engine.audio(
-                            audioData: wavData,
+                            audioData: audiosData[0],
                             prompt: fullPrompt,
                             format: .wav,
                             temperature: self.samplingTemperature,
@@ -465,7 +450,6 @@ final class LiteRTBackend: InferenceService {
                             continuation.finish()
                         }
                     } else {
-                        // Image / mixed: 用通用 multimodal API
                         let stream = engine.multimodalStreaming(
                             audioData: audiosData,
                             imagesData: imagesData,

@@ -26,77 +26,54 @@ public struct AudioInput: Sendable {
     }
 
     /// 编码为 16-bit PCM WAV Data (适配 LiteRT-LM 音频输入)
-    /// Gemma 4 要求 16kHz mono WAV — 自动从任意采样率重采样。
+    /// 前置条件: samples 已被 AudioCaptureService 重采样到 16kHz mono。
+    /// 此处只做 Float32 → Int16 PCM + WAV header 封装。
     public var wavData: Data {
-        let targetRate = 16000
-        let monoSamples: [Float]
+        let intSampleRate = max(Int(sampleRate.rounded()), 1)
 
-        // 多声道 → mono (取平均)
+        // 多声道 → mono (安全兜底)
+        let mono: [Float]
         if channelCount > 1 {
             let frameCount = samples.count / channelCount
-            monoSamples = (0..<frameCount).map { frame in
+            mono = (0..<frameCount).map { frame in
                 var sum: Float = 0
-                for ch in 0..<channelCount {
-                    sum += samples[frame * channelCount + ch]
-                }
+                for ch in 0..<channelCount { sum += samples[frame * channelCount + ch] }
                 return sum / Float(channelCount)
             }
         } else {
-            monoSamples = samples
+            mono = samples
         }
 
-        // 重采样到 16kHz (线性插值)
-        let sourceSR = Int(sampleRate.rounded())
-        let resampled: [Float]
-        if sourceSR != targetRate, sourceSR > 0 {
-            let ratio = Double(sourceSR) / Double(targetRate)
-            let outputCount = Int(Double(monoSamples.count) / ratio)
-            resampled = (0..<outputCount).map { i in
-                let srcIdx = Double(i) * ratio
-                let idx0 = Int(srcIdx)
-                let frac = Float(srcIdx - Double(idx0))
-                let s0 = monoSamples[min(idx0, monoSamples.count - 1)]
-                let s1 = monoSamples[min(idx0 + 1, monoSamples.count - 1)]
-                return s0 + frac * (s1 - s0)
-            }
-        } else {
-            resampled = monoSamples
-        }
-
-        // 浮点 → 16-bit PCM
-        let clampedSamples = resampled.map { sample -> Int16 in
-            let limited = min(max(sample, -1), 1)
-            return Int16((limited * Float(Int16.max)).rounded())
+        // Float → 16-bit PCM
+        let pcm16 = mono.map { sample -> Int16 in
+            Int16((min(max(sample, -1), 1) * Float(Int16.max)).rounded())
         }
 
         let bytesPerSample = MemoryLayout<Int16>.size
-        let dataChunkSize = clampedSamples.count * bytesPerSample
-        let riffChunkSize = 36 + dataChunkSize
-        let byteRate = targetRate * 1 * bytesPerSample  // mono
-        let blockAlign = 1 * bytesPerSample
+        let dataSize = pcm16.count * bytesPerSample
 
         var data = Data()
-        data.reserveCapacity(44 + dataChunkSize)
+        data.reserveCapacity(44 + dataSize)
 
-        func appendLE<T: FixedWidthInteger>(_ value: T) {
-            var le = value.littleEndian
+        func appendLE<T: FixedWidthInteger>(_ v: T) {
+            var le = v.littleEndian
             withUnsafeBytes(of: &le) { data.append(contentsOf: $0) }
         }
 
         data.append("RIFF".data(using: .ascii)!)
-        appendLE(UInt32(riffChunkSize))
+        appendLE(UInt32(36 + dataSize))
         data.append("WAVE".data(using: .ascii)!)
         data.append("fmt ".data(using: .ascii)!)
-        appendLE(UInt32(16))
-        appendLE(UInt16(1))             // PCM
-        appendLE(UInt16(1))             // mono
-        appendLE(UInt32(targetRate))    // 16000 Hz
-        appendLE(UInt32(byteRate))
-        appendLE(UInt16(blockAlign))
-        appendLE(UInt16(bytesPerSample * 8))
+        appendLE(UInt32(16))                          // fmt chunk size
+        appendLE(UInt16(1))                           // PCM
+        appendLE(UInt16(1))                           // mono
+        appendLE(UInt32(intSampleRate))               // sample rate
+        appendLE(UInt32(intSampleRate * bytesPerSample)) // byte rate
+        appendLE(UInt16(bytesPerSample))              // block align
+        appendLE(UInt16(bytesPerSample * 8))          // bits per sample
         data.append("data".data(using: .ascii)!)
-        appendLE(UInt32(dataChunkSize))
-        for sample in clampedSamples { appendLE(sample) }
+        appendLE(UInt32(dataSize))
+        for s in pcm16 { appendLE(s) }
 
         return data
     }
