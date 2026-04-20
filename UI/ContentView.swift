@@ -686,7 +686,6 @@ struct ContentView: View {
         if audioCapture.isCapturing && captureOrigin == .menu {
             RecordingStatusCard(
                 duration: audioCapture.duration,
-                sampleRate: max(audioCapture.sampleRate, 16_000),
                 peakLevel: audioCapture.peakLevel,
                 onStop: {
                     _ = audioCapture.stopCapture()

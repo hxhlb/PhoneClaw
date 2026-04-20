@@ -260,7 +260,6 @@ struct AudioPlaybackActionButton: View {
 
 struct RecordingStatusCard: View {
     let duration: TimeInterval
-    let sampleRate: Double
     let peakLevel: Float
     let onStop: () -> Void
     let onDiscard: () -> Void
@@ -280,7 +279,6 @@ struct RecordingStatusCard: View {
                 Spacer(minLength: 8)
 
                 audioMetaChip(text: formattedDuration, emphasized: true)
-                audioMetaChip(text: sampleRateText)
             }
 
             HStack(spacing: 12) {
@@ -336,9 +334,6 @@ struct RecordingStatusCard: View {
         return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 
-    private var sampleRateText: String {
-        String(format: "%.0f kHz", max(sampleRate, 16_000) / 1000)
-    }
 }
 
 // MARK: - Composer Audio Draft Card
@@ -395,8 +390,6 @@ struct ComposerAudioDraftCard: View {
                             .foregroundStyle(player.isPlaying ? Theme.accent : Theme.textSecondary)
 
                         Spacer(minLength: 8)
-
-                        audioMetaChip(text: String(format: "%.0f kHz", attachment.sampleRate / 1000))
                     }
                 }
             }
