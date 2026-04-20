@@ -27,6 +27,15 @@ final class LiteRTModelStore: ModelInstaller {
 
     init() {
         refreshInstallStates()
+
+        // 监听模型加载失败（文件损坏）→ 立即刷新安装状态
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("LiteRTModelCorrupt"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshInstallStates()
+        }
     }
 
     // MARK: - ModelInstaller

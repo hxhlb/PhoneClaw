@@ -140,7 +140,22 @@ final class LiteRTBackend: InferenceService {
         } catch {
             isLoading = false
             isLoaded = false
-            statusMessage = "❌ \(error.localizedDescription)"
+
+            // 模型加载失败 → 文件可能损坏，自动清理并恢复下载按钮
+            let descriptor = ModelDescriptor.allModels.first { $0.id == modelID }
+            let displayName = descriptor?.displayName ?? modelID
+            print("[LiteRT] ❌ 加载 \(displayName) 失败: \(error.localizedDescription)")
+            print("[LiteRT] 自动清理可能损坏的模型文件...")
+            try? FileManager.default.removeItem(at: modelPath)
+            print("[LiteRT] 已删除: \(modelPath.lastPathComponent)")
+            // 通知外部 store 刷新状态 (下次 refreshInstallStates 时会标记为 notInstalled)
+            NotificationCenter.default.post(
+                name: Notification.Name("LiteRTModelCorrupt"),
+                object: nil,
+                userInfo: ["modelID": modelID]
+            )
+
+            statusMessage = "❌ \(displayName) 文件损坏，请重新下载"
             PCLog.modelLoadFailed(modelID: modelID, reason: error.localizedDescription)
             throw error
         }
