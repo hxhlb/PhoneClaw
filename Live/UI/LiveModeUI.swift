@@ -388,6 +388,7 @@ struct LiveModeView: View {
             camera.stop()
             liveEngine.frameProvider = nil
             isCameraEnabled = false
+            liveEngine.notifyCameraStateChanged(isOn: false)
         } else {
             guard !isCameraStarting else { return }
             isCameraStarting = true
@@ -397,6 +398,7 @@ struct LiveModeView: View {
                 if ok {
                     liveEngine.frameProvider = { [camera] in camera.captureLatestFrame() }
                     isCameraEnabled = true
+                    liveEngine.notifyCameraStateChanged(isOn: true)
                 } else {
                     print("[Live] Camera start failed — permission denied or device unavailable")
                 }

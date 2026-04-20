@@ -198,6 +198,23 @@ class LiveModeEngine {
     /// 摄像头帧提供器，由 UI 层注入。Engine 不直接依赖 LiveCameraService。
     var frameProvider: (() -> CIImage?)?
 
+    /// 通知 engine 摄像头状态变化，engine 向 conversation 发一条系统事件消息.
+    /// 让模型知道当前能否看到画面，防止基于旧 KV cache 幻觉.
+    func notifyCameraStateChanged(isOn: Bool) {
+        guard let inference else { return }
+        let msg = isOn
+            ? "(系统通知：用户已开启摄像头，你现在可以看到画面了)"
+            : "(系统通知：用户已关闭摄像头，你现在无法看到任何画面。如果用户问你看到什么，告诉他需要先开启摄像头)"
+        print("[Live] 📷 Camera state → \(isOn ? "ON" : "OFF"), injecting system event")
+        // 发一条不需要回复的 user message 来更新 KV cache 上下文
+        // 用 generateLive 发送, 模型会输出少量 token, 直接丢弃
+        Task {
+            for try await _ in inference.generateLive(prompt: msg, images: [], audios: []) {
+                // 丢弃输出 — 这条只是为了在 KV cache 中留下上下文
+            }
+        }
+    }
+
     private var liveLocaleConfig: LiveLocaleConfig { LiveLocale.zhCN.config }
     private var liveStrings: LiveLocaleConfig.StatusStrings { liveLocaleConfig.statusStrings }
 

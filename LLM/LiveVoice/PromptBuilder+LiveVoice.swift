@@ -36,14 +36,14 @@ extension PromptBuilder {
 
     /// 当前 Live turn 的纯文本 user message.
     /// 每轮带一句极短的 persona 提醒, 防止 E4B 模型自我认同漂移 (Gemma 4 → 手机龙虾).
-    /// 当 hasVision=false 时加 "(无画面)" 防止模型基于旧 KV cache 幻觉仍能看到.
+    /// 摄像头状态由 notifyCameraStateChanged() 事件驱动注入, 不在每条消息里重复.
     static func buildLiveVoiceUserPrompt(
         userTranscript: String,
         locale: LiveLocale = .zhCN,
         hasVision: Bool
     ) -> String {
+        _ = hasVision
         let persona = locale.config.personaName
-        let visionHint = hasVision ? "" : "(无画面) "
-        return "(你是\(persona)) \(visionHint)\(userTranscript)"
+        return "(你是\(persona)) \(userTranscript)"
     }
 }
