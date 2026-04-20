@@ -72,10 +72,13 @@ final class LiteRTModelStore: ModelInstaller {
                         fileName: model.fileName
                     )
 
-                    // 文件大小校验 — 捕获截断下载
+                    // 文件大小校验 — 实际大小必须 >= 预期的 90%
                     let fileAttrs = try FileManager.default.attributesOfItem(atPath: tempURL.path)
                     let actualSize = (fileAttrs[.size] as? Int64) ?? 0
-                    if model.expectedFileSize > 0, actualSize < model.expectedFileSize / 2 {
+                    if model.expectedFileSize > 0, actualSize < model.expectedFileSize * 9 / 10 {
+                        let expectedMB = model.expectedFileSize / 1_000_000
+                        let actualMB = actualSize / 1_000_000
+                        print("[Download] ❌ 文件大小异常: 期望 ~\(expectedMB)MB, 实际 \(actualMB)MB")
                         try? FileManager.default.removeItem(at: tempURL)
                         throw LiteRTDownloadError.invalidResponse
                     }
@@ -269,8 +272,20 @@ final class LiteRTModelStore: ModelInstaller {
 
     func refreshInstallStates() {
         for model in ModelDescriptor.allModels {
-            if artifactPath(for: model) != nil {
-                installStates[model.id] = .downloaded
+            if let path = artifactPath(for: model) {
+                // 校验文件大小 — 不完整的文件自动清理
+                if model.expectedFileSize > 0,
+                   let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
+                   let size = attrs[.size] as? Int64,
+                   size < model.expectedFileSize * 9 / 10 {
+                    let expectedMB = model.expectedFileSize / 1_000_000
+                    let actualMB = size / 1_000_000
+                    print("[ModelStore] ⚠️ \(model.fileName) 文件不完整 (\(actualMB)MB/\(expectedMB)MB)，已自动清理")
+                    try? FileManager.default.removeItem(at: path)
+                    installStates[model.id] = .notInstalled
+                } else {
+                    installStates[model.id] = .downloaded
+                }
             } else {
                 installStates[model.id] = .notInstalled
             }
