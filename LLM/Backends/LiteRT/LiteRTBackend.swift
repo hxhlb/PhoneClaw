@@ -470,7 +470,7 @@ final class LiteRTBackend: InferenceService {
                     }
                     let audiosData = audios.map(\.wavData)
 
-                    print("[LiteRT] 📩 Live turn: prompt=\"\(prompt.prefix(100))\" images=\(imagesData.count) audios=\(audiosData.count)")
+                    print("[LiteRT] 📩 Live turn: prompt=\"\(prompt.prefix(300))\" images=\(imagesData.count) audios=\(audiosData.count)")
                     let stream = engine.conversationSendStreaming(
                         audioData: audiosData,
                         imagesData: imagesData,
