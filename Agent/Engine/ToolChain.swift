@@ -241,10 +241,69 @@ extension AgentEngine {
         round: Int = 1,
         maxRounds: Int = 10
     ) async {
-        guard round <= maxRounds else {
-            log("[Agent] 达到最大工具链轮数 \(maxRounds)")
+        // P1-D (2026-04-17): 内存紧 + 进入 tool_call 链 → 限轮数 + skip duplicates.
+        // 真机 E4B 真机 multi-SKILL: 模型可能跟自己第二次调同 tool (不进步) — 单
+        // 短路会把后续合法的 reminders/contacts 步骤一起砍掉. 设计:
+        //   1. 同名 tool 在最近 6 条 skillResult 已成功跑过 ≥1 次 → SKIP 本次
+        //      执行 (不再调真 tool, 不消耗副作用 quota), 但塞一个 fake "已完成"
+        //      tool_result 给模型, 让它继续推进下一个 tool 或给最终答案.
+        //   2. maxRounds 内存紧时上限 6 (从原 3 抬上去) — 多 SKILL 串联场景:
+        //      load_skill + tool + load_skill + tool + tool + 最终答案 大概 5-6 round.
+        let effectiveMax = (llm.availableHeadroomMB < 1500) ? min(maxRounds, 6) : maxRounds
+        guard round <= effectiveMax else {
+            log("[Agent] 达到最大工具链轮数 \(effectiveMax) (memory-aware)")
             isProcessing = false
             return
+        }
+
+        // 重复检测 — 同名 tool 在【当前 user turn】内已跑过 ≥1 次 → 跳过本次执行,
+        // 让模型继续推进. 只算"距离最后一条 user message 之间"的 skillResult,
+        // 跨 turn 不算 (e.g. turn 1 fired reminders, turn 2 又 fire 是合法补参, 不是循环).
+        let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) ?? -1
+        let currentTurnSlice = lastUserIdx >= 0 ? Array(messages.suffix(from: lastUserIdx)) : Array(messages)
+        let recentResults = currentTurnSlice.filter { $0.role == .skillResult }
+        if let parsedCall = parseToolCall(fullText) {
+            let candidateName = canonicalToolName(parsedCall.name, arguments: parsedCall.arguments)
+            let sameNameCount = recentResults.filter {
+                ($0.skillName ?? "") == candidateName
+            }.count
+            // load_skill 不应用此规则 — 模型可能合法地多次 load 不同 SKILL
+            // (canonical 会把所有 load_skill 归一成同名, 易误判).
+            if sameNameCount >= 1, candidateName != "load_skill" {
+                log("[Agent] 检测到 tool \(candidateName) 已在前面跑过, skip 本次重复, 让模型继续")
+                let lastResult = recentResults.last(where: { ($0.skillName ?? "") == candidateName })?.content ?? "已完成"
+                let pseudoSummary = "[\(candidateName) 已经在前面成功执行, 不需要再调用. 请继续完成用户其他请求, 或给最终中文回复]\n上一次结果: \(lastResult)"
+                let followUpPrompt = PromptBuilder.appendToolResult(
+                    toR1Prompt: prompt,
+                    r1Output: fullText,
+                    toolName: candidateName,
+                    toolResultSummary: pseudoSummary
+                )
+
+                messages.append(ChatMessage(role: .assistant, content: "▍"))
+                let followUpIndex = messages.count - 1
+
+                guard let nextText = await streamLLM(prompt: followUpPrompt, msgIndex: followUpIndex, images: images) else {
+                    isProcessing = false
+                    return
+                }
+
+                if parseToolCall(nextText) != nil {
+                    messages[followUpIndex].update(content: "")
+                    await executeToolChain(
+                        prompt: followUpPrompt,
+                        fullText: nextText,
+                        userQuestion: userQuestion,
+                        images: images,
+                        round: round + 1,
+                        maxRounds: maxRounds
+                    )
+                } else {
+                    messages[followUpIndex].update(content: cleanOutput(nextText))
+                    isProcessing = false
+                }
+                return
+            }
         }
 
         guard let parsedCall = parseToolCall(fullText) else {
@@ -281,12 +340,12 @@ extension AgentEngine {
             let toolResultSummary = toolResultSummaryForModel(toolName: "list_skills", toolResult: resultText)
             messages.append(ChatMessage(role: .skillResult, content: toolResultSummary, skillName: "list_skills"))
 
-            let followUpPrompt = PromptBuilder.buildToolAnswerPrompt(
-                originalPrompt: prompt,
+            // F3: R2 = R1 + R1 output + tool_result (continuation form).
+            let followUpPrompt = PromptBuilder.appendToolResult(
+                toR1Prompt: prompt,
+                r1Output: fullText,
                 toolName: "list_skills",
-                toolResultSummary: toolResultSummary,
-                userQuestion: userQuestion,
-                currentImageCount: images.count
+                toolResultSummary: toolResultSummary
             )
 
             messages.append(ChatMessage(role: .assistant, content: "▍"))
@@ -533,12 +592,13 @@ extension AgentEngine {
                 return
             }
 
-            let followUpPrompt = PromptBuilder.buildToolAnswerPrompt(
-                originalPrompt: prompt,
+            // F3: R2 prompt = R1 prompt + R1 output + tool_result message.
+            // 物理上是 R1 conversation 的延伸 → KV cache 自然命中 R1 全部 token.
+            let followUpPrompt = PromptBuilder.appendToolResult(
+                toR1Prompt: prompt,
+                r1Output: fullText,
                 toolName: call.name,
-                toolResultSummary: toolResultSummary,
-                userQuestion: userQuestion,
-                currentImageCount: images.count
+                toolResultSummary: toolResultSummary
             )
 
             messages.append(ChatMessage(role: .assistant, content: "▍"))

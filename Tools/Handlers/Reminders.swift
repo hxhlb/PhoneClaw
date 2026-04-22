@@ -9,7 +9,9 @@ enum RemindersTools {
         registry.register(RegisteredTool(
             name: "reminders-create",
             description: "创建新的提醒事项，可写入标题、到期时间和备注",
-            parameters: "title: 提醒标题, due: ISO 8601 到期时间（可选）, notes: 备注（可选）",
+            // 设计原则: SKILL/TOOL 契约按最低能力的模型 (E2B 2B) 来. 不要求 LLM 把
+            // 中文相对时间转成 ISO 8601 — handler 自己解析任何合理时间表达式.
+            parameters: "title: 提醒标题, due: 到期时间（可选, 支持 ISO 8601 / 中文相对时间如\"今晚八点\" / 中文绝对时间如\"5月3日15:00\"）, notes: 备注（可选）",
             requiredParameters: ["title"]
         ) { args in
             guard let rawTitle = args["title"] as? String else {
@@ -20,14 +22,36 @@ enum RemindersTools {
                 return failurePayload(error: "缺少 title 参数")
             }
 
+            // due 是提醒事项的核心硬参. 设计原则: 若用户没说时间, tool 强制返失败让模型追问,
+            // 不让模型自己脑补时间 (E2B 实测会编 "今天" 当默认, 用户实际没说).
+            // 完整性检测走通用 parseToolDateTimeDetailed.hasExplicitTime — 通用日期处理, 非 SKILL 规则.
             let dueRaw = (args["due"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let dueRaw, !dueRaw.isEmpty, parseISO8601Date(dueRaw) == nil {
-                return failurePayload(error: "due 必须是有效的 ISO 8601 时间字符串")
+            guard let dueRaw, !dueRaw.isEmpty,
+                  let parsed = parseToolDateTimeDetailed(dueRaw) else {
+                return failurePayload(error: "提醒事项必须给具体时间, 你想几点提醒呢? 例如\"今晚八点\"或\"明天上午10点\"")
             }
-
-            let dueDate = dueRaw.flatMap(parseISO8601Date)
+            guard parsed.hasExplicitTime else {
+                return failurePayload(error: "你说的\u{201C}\(dueRaw)\u{201D}没指定具体时间, 想几点提醒呢? 例如\"\(dueRaw)上午10点\"")
+            }
+            let dueDate: Date? = parsed.date
             let notes = (args["notes"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
+            // 上层逻辑全真 (parse + validate). 系统副作用 (EKEventStore.save reminder)
+            // Mac CLI 不可达, 走 mock 返合成 success — 真实写入由 iOS 真机测兜底.
+            #if !os(iOS)
+            return successPayload(
+                result: dueDate != nil
+                    ? "已创建提醒事项\u{201C}\(title)\u{201D}，提醒时间为 \(iso8601String(from: dueDate!))。"
+                    : "已创建提醒事项\u{201C}\(title)\u{201D}。",
+                extras: [
+                    "calendarItemId": "mock-mac-\(UUID().uuidString)",
+                    "title": title,
+                    "due": dueDate.map { iso8601String(from: $0) } ?? "",
+                    "notes": notes ?? "",
+                    "_macMock": true
+                ]
+            )
+            #else
             do {
                 guard try await ToolRegistry.shared.requestAccess(for: .reminders) else {
                     return failurePayload(error: "未获得提醒事项权限")
@@ -64,6 +88,7 @@ enum RemindersTools {
             } catch {
                 return failurePayload(error: "创建提醒事项失败：\(error.localizedDescription)")
             }
+            #endif
         })
     }
 

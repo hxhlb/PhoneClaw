@@ -1,13 +1,16 @@
 import Foundation
+#if canImport(HealthKit)
 import HealthKit
 
 // MARK: - Health Tools
 //
 // 读取 HealthKit 里用户的健康数据。只读,不写。
 //
-// v1 实现 health-steps-today (今日步数)。
-// Phase 2 扩展: steps-yesterday, steps-range, distance, energy,
-// heart rate, sleep, workout。
+// HealthKit 是 iOS-only framework. macOS 系统物理上没有 HealthKit, 这整个文件主体
+// 用 #if canImport(HealthKit) 守护. macOS CLI 走文件末尾的 #else 分支 — 但
+// PhoneClawCLI/Sources/PhoneClawCLI/MockToolHandlers.swift 里有 fixture-based
+// HealthTools, ToolRegistry 注册到那个版本. CLI scenario 仍能跑, 用 fixture 数据.
+// (这不是 design 选择, 是 Mac 没真实健康数据的物理事实.)
 //
 // 权限策略: 每次调用时检查授权, 首次会弹系统对话框。用户拒绝后直接返回
 // failurePayload, 由 skill body 里的指令让模型给用户一个友好解释。
@@ -532,3 +535,18 @@ enum HealthTools {
         }
     }
 }
+#else
+// macOS: 无 HealthKit, 整个 enum 是 no-op stub. CLI 实际跑的是
+// MockToolHandlers.HealthTools (Package.swift exclude Health.swift 的话用 mock,
+// 不 exclude 的话用这个 stub — 我们不 exclude, 让源 enum 编译通过为 stub,
+// 但 mock 文件里 HealthTools 与本 stub 同名会冲突, 所以 Package.swift 仍 exclude
+// 这个文件让 mock 接管).
+//
+// 实际加载流程 (CLI):
+//   - Package.swift exclude 了 Tools/Handlers/Health.swift
+//   - MockToolHandlers.swift 提供 enum HealthTools 的 fixture 实现
+//   - ToolRegistry.registerBuiltInTools() 调 HealthTools.register → mock
+enum HealthTools {
+    static func register(into registry: ToolRegistry) {}
+}
+#endif

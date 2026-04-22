@@ -264,14 +264,38 @@ public class Gemma4LanguageModel: Module, KVCacheDimensionProvider {
     }
 
     public func newCache(parameters: GenerateParameters?) -> [any KVCache] {
+        // 4-bit KV quantization on full_attention layers (sliding layers stay
+        // fp16 — bounded by slidingWindow, RotatingKVCache.toQuantized 暂未实现).
+        //
+        // 2026-04-17 落地 P1: HARNESS E4B peak KV 114.7 → 72.9 MB (-36%),
+        // 换 E4B 2 scenario 回归 (17/21 vs 19/21), E2B 无回归 (10/21 持平).
+        // 真机目标: 缓解 jetsam 下多轮 tool_call 累积 OOM.
+        //
+        // 覆盖: PHONECLAW_QUANTIZED_KV=0 关闭 (退回 fp16), =8 用 8-bit, 未设 → 4-bit.
+        let quantBits: Int? = {
+            let raw = ProcessInfo.processInfo.environment["PHONECLAW_QUANTIZED_KV"]
+            guard let raw else { return 4 }
+            if raw == "0" || raw == "off" || raw.lowercased() == "false" { return nil }
+            if let n = Int(raw), n == 4 || n == 8 { return n }
+            return 4
+        }()
+
         var caches: [any KVCache] = []
         let concreteLayers = Array(config.layerTypes[..<model.firstKvSharedLayerIdx])
         for layerType in concreteLayers {
             if layerType == "full_attention" {
-                caches.append(StandardKVCache())
+                if let bits = quantBits {
+                    caches.append(QuantizedKVCache(groupSize: 64, bits: bits))
+                } else {
+                    caches.append(StandardKVCache())
+                }
             } else {
                 caches.append(RotatingKVCache(maxSize: config.slidingWindow, keep: 0))
             }
+        }
+        if let bits = quantBits {
+            let fullCount = concreteLayers.filter { $0 == "full_attention" }.count
+            print("[MLX] KV cache: quantized \(fullCount) full_attention layers at \(bits)-bit (sliding unchanged)")
         }
         return caches
     }

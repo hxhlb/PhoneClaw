@@ -27,6 +27,15 @@ A local AI Agent for iPhone. Offline. Private. Native.
 
 PhoneClaw is a local AI Agent that runs entirely on your iPhone. No internet connection. No data uploads. No cloud dependency.
 
+## 2026-04-18 Update
+
+- Added in-app download for LIVE mode voice models — download directly from the settings page and start using LIVE mode
+
+## 2026-04-17 Update
+
+- Added **LIVE Mode**: a new real-time voice interaction mode with natural conversation flow — interrupt anytime without waiting for the model to finish speaking
+- LIVE Mode supports **camera input**: the model can recognize and understand the environment, objects, and scenes captured by the camera in real time, enabling multimodal "see and speak" interaction
+
 ## 2026-04-10 Update
 
 - Added Health Skill: read HealthKit data including today's/yesterday's steps, weekly step trends, walking distance, active calories, resting heart rate, last night's sleep, weekly sleep summary, and recent workouts — 9 tools total, all data processed locally and never uploaded
@@ -182,6 +191,24 @@ Models/
 > `Models/` is gitignored and will not be committed.
 > Approximate repository sizes on Hugging Face: E2B ~3.58 GB, E4B ~5.22 GB.
 > You can also download manually from the model page and place files in the correct directory.
+
+**LIVE Mode (voice interaction) additional models**
+
+If you want to use LIVE mode with voice recognition and synthesis, download the ASR and TTS models:
+
+```bash
+# ASR — Chinese streaming speech recognition (zipformer, int8, ~160MB)
+hf download csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30 \
+  --local-dir ./Models/sherpa-asr-zh \
+  --exclude "test_wavs/*" "*.md" ".gitattributes"
+
+# TTS — Chinese text-to-speech (keqing, ~125MB)
+hf download csukuangfj/vits-zh-hf-keqing \
+  --local-dir ./Models/vits-zh-hf-keqing \
+  --exclude "*.py" "*.sh" ".gitattributes"
+```
+
+After downloading, add `Models/sherpa-asr-zh` and `Models/vits-zh-hf-keqing` as folder references to `Copy Bundle Resources` in Xcode. Skipping this step won't break the build — LIVE mode will fall back to system speech.
 
 ### 4. Open the workspace
 
@@ -351,15 +378,6 @@ A realistic goal: pass content between apps, open a specific app to a specific s
 
 Explore connecting external video input and screen understanding with local models, so PhoneClaw goes beyond answering questions in isolation and develops stronger real-world perception and scheduling capabilities.
 
-### Suggested priority order
-
-If ordered by "fastest path to meaningful experience improvement":
-
-1. Files / Photos / Notes — three high-frequency API categories
-2. Shortcuts / App Intents integration
-3. OCR + speech recognition
-4. Local knowledge base search
-5. Finer-grained automated Skill orchestration
 
 ## References
 

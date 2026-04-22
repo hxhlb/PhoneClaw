@@ -38,6 +38,38 @@ public struct BundledModelOption: Identifiable, Hashable, Sendable {
 /// Forces MLX Metal GPU path — no CPU fallback.
 @Observable
 public class MLXLocalLLMService: LLMEngine {
+    private static var isSimulatorRuntime: Bool {
+        #if targetEnvironment(simulator)
+        true
+        #else
+        ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != nil
+        #endif
+    }
+
+    private static let liveComponentTestLock = NSLock()
+    private static var liveComponentTestStarted = false
+
+    private static func mlxMemoryDiagnostics() -> String {
+        guard !isSimulatorRuntime else {
+            return "simulator-skip"
+        }
+        return "active: \(MLX.GPU.activeMemory / 1_048_576) MB, cache: \(MLX.GPU.cacheMemory / 1_048_576) MB"
+    }
+
+    private static func takeLiveComponentTestLaunchToken() -> Bool {
+        guard ProcessInfo.processInfo.environment["PHONECLAW_RUN_LIVE_COMPONENT_TEST"] == "1" else {
+            return false
+        }
+
+        return liveComponentTestLock.withLock {
+            if liveComponentTestStarted {
+                return false
+            }
+            liveComponentTestStarted = true
+            return true
+        }
+    }
+
     static let availableModels: [BundledModelOption] = [
         .init(
             id: "gemma-4-e2b-it-4bit",
@@ -112,6 +144,9 @@ public class MLXLocalLLMService: LLMEngine {
     var foregroundGPUAllowed = true
     var lifecycleObserverTokens: [NSObjectProtocol] = []
     var audioCapabilityEnabled = false
+    let capabilitySwitchLock = NSLock()
+    var capabilitySwitchPending = false
+    var admittedWorkCount = 0  // number of active load/generate tasks admitted past the gate
 
     // MARK: - KV Cache Reuse state
     //
@@ -134,6 +169,14 @@ public class MLXLocalLLMService: LLMEngine {
            let option = Self.availableModels.first(where: { $0.id == selectedModelID }) {
             self.selectedModel = option
         }
+        // F3 + KV reuse 对 E4B 工作良好 (cache hit 89-96%, 真机不再闪崩),
+        // 但 E2B + F3 + KV reuse 组合实测**所有 R2 follow-up 0 token 空输出**
+        // (真机 2026-04-17 验证), 用户感知是助理"沉默". E4B 同 prompt 正常.
+        // 推测: E2B 在 KV cache 复用 R1 prefix 时, 模型状态包含 R1 end-of-turn
+        // 信号, 跟 F3 follow-up 的 prompt 交互导致提前 emit EOS. 还需深查.
+        // 暂时 E2B 仍关 KV reuse, F3 prompt 结构对 E2B 仍有效 (R2 lean follow-up
+        // 替代成 continuation 形式的好处保留, 只是没 cache 加速).
+        self.kvReuseEnabled = !self.selectedModel.id.contains("e2b")
         self.stats.backend = "mlx-gpu"
         configureLifecycleObservers()
         cleanupStalePartialDirectories()
@@ -156,6 +199,21 @@ public class MLXLocalLLMService: LLMEngine {
         currentLoadTask = Task { [weak self] in
             guard let self else { return }
             defer { self.currentLoadTask = nil }
+
+            // Admission gate: atomically check switch flag and register work
+            let admitted: Bool = self.capabilitySwitchLock.withLock {
+                if self.capabilitySwitchPending { return false }
+                self.admittedWorkCount += 1
+                return true
+            }
+            guard admitted else {
+                print("[MLX] loadModel: capability switch pending, aborting")
+                return
+            }
+            defer {
+                self.capabilitySwitchLock.withLock { self.admittedWorkCount -= 1 }
+            }
+
             do {
                 if self.isLoading {
                     return
@@ -296,7 +354,7 @@ public class MLXLocalLLMService: LLMEngine {
         let (footprintBefore, limitBefore) = MemoryStats.footprintMB()
         print("[MEM] Physical RAM: \(Int(physMB)) MB")
         print("[MEM] Before load — footprint: \(Int(footprintBefore)) MB, jetsam limit: \(Int(limitBefore)) MB")
-        print("[MEM] MLX before — active: \(MLX.GPU.activeMemory / 1_048_576) MB, cache: \(MLX.GPU.cacheMemory / 1_048_576) MB")
+        print("[MEM] MLX before — \(Self.mlxMemoryDiagnostics())")
 
         let container = try await VLMModelFactory.shared.loadContainer(
             from: path,
@@ -311,7 +369,7 @@ public class MLXLocalLLMService: LLMEngine {
         // ── Memory diagnostics (read after load) ───────────────────────────────
         let (footprintAfter, _) = MemoryStats.footprintMB()
         print("[MEM] After load  — footprint: \(Int(footprintAfter)) MB")
-        print("[MEM] MLX after   — active: \(MLX.GPU.activeMemory / 1_048_576) MB, cache: \(MLX.GPU.cacheMemory / 1_048_576) MB")
+        print("[MEM] MLX after   — \(Self.mlxMemoryDiagnostics())")
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - loadStart) * 1000
         stats.loadTimeMs = elapsed
@@ -333,6 +391,53 @@ public class MLXLocalLLMService: LLMEngine {
         }
 
         try await load()
+    }
+
+    // MARK: - Live Mode Capability Preload
+    //
+    // Peterson's admission protocol: both sides (generation/load vs capability switch)
+    // publish their intent FIRST, then check the other side.
+
+    public func prepareForLiveMode() async throws {
+        if audioCapabilityEnabled && isLoaded { return }
+
+        let maxAttempts = 10
+
+        for attempt in 1...maxAttempts {
+            // Wait for in-flight work to finish
+            while isLoading || isGenerating {
+                print("[MLX] prepareForLiveMode: waiting... (attempt \(attempt))")
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            if audioCapabilityEnabled && isLoaded { return }
+
+            // Atomically: check no admitted work, then set switch flag
+            let acquired: Bool = capabilitySwitchLock.withLock {
+                if admittedWorkCount > 0 { return false }
+                capabilitySwitchPending = true
+                return true
+            }
+
+            guard acquired else {
+                // Admitted work is still running, retry
+                try await Task.sleep(nanoseconds: 100_000_000)
+                continue
+            }
+
+            // Flag set AND no admitted work. Perform the switch.
+            do {
+                try await ensureAudioCapability(hasAudio: true)
+                capabilitySwitchLock.withLock { capabilitySwitchPending = false }
+                return
+            } catch {
+                capabilitySwitchLock.withLock { capabilitySwitchPending = false }
+                throw error
+            }
+        }
+
+        capabilitySwitchLock.withLock { capabilitySwitchPending = false }
+        print("[MLX] prepareForLiveMode: could not reach stable idle")
+        throw MLXError.modelBusy
     }
 
     /// 当前可用内存 headroom（MB）。Agent 用来动态调整 history 深度。
@@ -364,6 +469,21 @@ public class MLXLocalLLMService: LLMEngine {
         // (first response is ~2-3s slower) but avoids the OOM kill on startup.
         print("[MLX] Warmup skipped — shaders will compile on first inference")
         statusMessage = "模型已就绪 ✅"
+
+        #if DEBUG && canImport(UIKit)
+        // LiveComponentTest 在 Live/Debug/ 下, iOS-only. Mac CLI 不 symlink Live/,
+        // 所以这个 opt-in Debug 分支只对 iOS build 生效.
+        let isRunningXCTest = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil
+            || ProcessInfo.processInfo.environment["XCTestSessionIdentifier"] != nil
+
+        if !isRunningXCTest && Self.takeLiveComponentTestLaunchToken() {
+            // Debug-only opt-in E2E path for live voice validation.
+            // Never override the user's selected model, and only launch once
+            // per process so reloads/model switches don't start a second audio loop.
+            Task { await LiveComponentTest.runLiveLoop(llm: self) }
+        }
+        #endif
     }
 
     public func generateStream(
@@ -401,6 +521,42 @@ public class MLXLocalLLMService: LLMEngine {
         return generateStream(input: input, isMultimodal: hasMedia)
     }
 
+    /// Raw text prompt path — 绕开 tokenizer 的 applyChatTemplate.
+    ///
+    /// 专为 Live 语音场景设计: 调用方 (PromptBuilder.buildLiveVoicePrompt)
+    /// 手写 `<|turn>system/user/model` 模板, 需要让 Gemma 4 把这段字符串**按
+    /// 原样**编码 (addSpecialTokens=false, 不再额外包装), 系统指令才能完整传达.
+    ///
+    /// 对比:
+    ///   - `generateStream(prompt:images:audios:)`: 内部包成 `.chat([.user(prompt)])`,
+    ///     Gemma4Processor 走 applyChatTemplate, 把整段字符串当 user content 再包一层.
+    ///   - `generateStream(chat:)`: 按 system/user 角色走 applyChatTemplate, 在 Gemma 4
+    ///     上 system 约束被稀释 (harness 2026-04-16 实测).
+    ///   - 本方法 (纯文本): `UserInput(prompt: .text(rawText))` 命中 Gemma4Processor 的
+    ///     text 分支, 直接 `tokenizer.encode(text:, addSpecialTokens:false)`,
+    ///     模型看到的就是调用方手写的完整 token 序列.
+    ///
+    /// 多模态分流 (真机 2026-04-16 验证):
+    ///   `.text` 分支在 E2B + vision 场景下 MLX 内部 forward graph 内存 spike 突破
+    ///   jetsam 6144 MB → 应用闪崩. `.chat` 分支同场景已验证稳定 (用户多次摄像头
+    ///   交互无崩溃). 因此**有 image 时回退到 chat path**, persona/marker 修复
+    ///   只对纯文本场景生效 — 视觉场景 user 通常问"这是什么", 不需要 persona 锚点.
+    public func generateStream(
+        rawText: String,
+        images: [CIImage] = []
+    ) -> AsyncThrowingStream<String, Error> {
+        if images.isEmpty {
+            // 纯文本: 走 .text 分支, bypass chat template, 享受 Live persona/marker 修复
+            let input = UserInput(prompt: .text(rawText))
+            return generateStream(input: input, isMultimodal: false)
+        } else {
+            // 多模态: 走 .chat 分支, 复用已验证不崩的 vision 路径
+            let chatImages: [UserInput.Image] = images.map { .ciImage($0) }
+            let input = UserInput(chat: [.user(rawText, images: chatImages)])
+            return generateStream(input: input, isMultimodal: true)
+        }
+    }
+
 
     private func currentMultimodalFallbackRecommendation() -> String {
         // 默认用户只装一个模型, 不建议"切换到另一个模型" (他可能根本没有)。
@@ -419,6 +575,23 @@ public class MLXLocalLLMService: LLMEngine {
                     continuation.finish(throwing: MLXError.modelNotLoaded)
                     return
                 }
+
+                // Admission gate: atomically check switch flag and register work
+                let admitted: Bool = self.capabilitySwitchLock.withLock {
+                    if self.capabilitySwitchPending { return false }
+                    self.admittedWorkCount += 1
+                    return true
+                }
+                guard admitted else {
+                    print("[MLX] generateStream: capability switch pending, aborting")
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
+                // Decrement counter when generation Task exits (any path)
+                defer {
+                    self.capabilitySwitchLock.withLock { self.admittedWorkCount -= 1 }
+                }
+
                 do {
                     try await self.ensureAudioCapability(hasAudio: !input.audios.isEmpty)
                 } catch {
@@ -478,7 +651,7 @@ public class MLXLocalLLMService: LLMEngine {
                         "[MEM] multimodal runtime budget — model=\(currentModel.displayName), "
                             + "headroom=\(headroom) MB, "
                             + "imageSoftTokenCap=\(runtimeBudget.imageSoftTokenCap.map(String.init) ?? "n/a"), "
-                            + "maxOutputTokens=\(runtimeBudget.maxOutputTokens), "
+                            + "outputCap=dynamic(headroomFloor=\(profile.headroomFloorMB)MB), "
                             + "audio=\(!input.audios.isEmpty ? 1 : 0)"
                     )
                 }
@@ -495,12 +668,11 @@ public class MLXLocalLLMService: LLMEngine {
                     Gemma4Processor.setRuntimeImageSoftTokenCap(nil)
                 }
                 let effectiveMaxOutputTokens: Int = {
-                    let multimodalCap = isMultimodal
-                        ? runtimeBudget?.maxOutputTokens ?? profile.multimodalOutputTiers.last?.maxOutputTokens ?? maxOutputTokens
-                        : maxOutputTokens
+                    // 多模态不再有独立的静态 token 上限 — 完全依赖 headroomFloorMB 运行时检测。
+                    // 只保留 thinking/text budget 的公式约束和 UI 滑块上限。
                     let thinkingCap = thinkingBudget?.maxOutputTokens ?? maxOutputTokens
                     let textCap = textBudget?.maxOutputTokens ?? maxOutputTokens
-                    return min(maxOutputTokens, multimodalCap, thinkingCap, textCap)
+                    return min(maxOutputTokens, thinkingCap, textCap)
                 }()
                 var resolvedMaxOutputTokens = effectiveMaxOutputTokens
 
@@ -510,9 +682,12 @@ public class MLXLocalLLMService: LLMEngine {
                 var firstTokenTime: Double? = nil
                 var tokenCount = 0
                 var hitTokenCap = false
+                var hitMemoryFloor = false
+                let headroomFloor = profile.headroomFloorMB
 
                 let (fp, _) = MemoryStats.footprintMB()
-                print("[MEM] generateStream start — footprint: \(Int(fp)) MB, MLX active: \(MLX.GPU.activeMemory / 1_048_576) MB")
+                let mlxMemory = Self.isSimulatorRuntime ? "simulator-skip" : "\(MLX.GPU.activeMemory / 1_048_576) MB"
+                print("[MEM] generateStream start — footprint: \(Int(fp)) MB, MLX active: \(mlxMemory)")
 
                 do {
                     try await self.ensureForegroundGPUExecution()
@@ -550,12 +725,16 @@ public class MLXLocalLLMService: LLMEngine {
                         // 加上 4.6 GB 已驻留 weights+KV 会撞 jetsam。
                         // 这是框架层修复，与 prompt 内容、skill 数量、SKILL.md
                         // 格式完全无关。
+                        // 2026-04-17: 256→128. E4B 42 层 chunk=256 真机 transient peak
+                        // 超预期 (~600-800 MB vs 理论 400 MB), 在稳态 headroom ~1100 MB
+                        // 下触发 jetsam. chunk=128 peak ~100-200 MB, 安全. 代价: prefill
+                        // 吞吐降 ~10-15% (更多 eval 间隔). 无功能损失.
                         let generateParams = GenerateParameters(
                             maxTokens: resolvedMaxOutputTokens,
                             temperature: samplingTemperature,
                             topP: samplingTopP,
                             topK: samplingTopK,
-                            prefillStepSize: 256
+                            prefillStepSize: 128
                         )
 
                         // Plan KV reuse (text-only). On multimodal / disabled /
@@ -580,9 +759,12 @@ public class MLXLocalLLMService: LLMEngine {
                             cacheForGenerate = nil
                         }
 
-                        // Construct iterator with our cache (or nil) and feed
-                        // the closure-based generate, matching the original
-                        // code path except cache is now plumbed through.
+                        // G2 (2026-04-17 实验, 已 revert): 试过 MinTokenEOSGuard 强制
+                        // 至少生成 N token 防 R1 0-token 空回复. 数据揭示副作用更糟:
+                        // 强制生成把 E2B 在 R2 follow-up 场景推到 "再次 emit tool_call"
+                        // → 5 轮 repeat 重复创建日历事件 / 联系人, 数据风险远超 "(无回复)".
+                        // 保留 MinTokenEOSGuard 实现以备将来精确路径使用 (例如只对 R1 启用,
+                        // 但需要 framework 标识 R1/R2 上下文, 当前 generate 路径不感知).
                         let iterator = try TokenIterator(
                             input: inputForGenerate,
                             model: context.model,
@@ -612,6 +794,19 @@ public class MLXLocalLLMService: LLMEngine {
                                 hitTokenCap = true
                                 return .stop
                             }
+
+                            // 实时内存地板检测: 每 32 token 查一次 headroom,
+                            // 低于地板值立即停止, 防止 jetsam 闪崩。
+                            // 每个 token 都查太贵 (task_info syscall), 32 是合理间隔。
+                            if tokens.count % 32 == 0 {
+                                let currentHeadroom = MemoryStats.headroomMB
+                                if currentHeadroom < headroomFloor {
+                                    print("[MEM] ⚠️ headroom \(currentHeadroom) MB < floor \(headroomFloor) MB at token \(tokens.count), stopping")
+                                    hitMemoryFloor = true
+                                    return .stop
+                                }
+                            }
+
                             return .more
                         }
 
@@ -643,15 +838,23 @@ public class MLXLocalLLMService: LLMEngine {
                     MLX.GPU.clearCache()
                     let (fpEnd, _) = MemoryStats.footprintMB()
                     print("[MEM] generateStream end  — footprint: \(Int(fpEnd)) MB, headroom: \(self.availableHeadroomMB) MB")
+                    print("[MEM] MLX post-clear — \(Self.mlxMemoryDiagnostics())")
 
                     // If we hit the token cap mid-sentence, append a visible notice.
                     // This makes truncation explicit rather than silently dropping content.
-                    if hitTokenCap {
+                    if hitTokenCap || hitMemoryFloor {
                         let isChinese = Locale.preferredLanguages.contains { $0.hasPrefix("zh") }
-                        let modeLabel = isChinese
-                            ? (thinkingEnabled ? "思考" : "输出")
-                            : (thinkingEnabled ? "Thinking" : "Output")
-                        continuation.yield("\n\n> ⚠️ \(modeLabel)已达单次输出上限（\(resolvedMaxOutputTokens) tokens），内容可能不完整。")
+                        if hitMemoryFloor {
+                            let msg = isChinese
+                                ? "\n\n> ⚠️ 内存不足，已在 \(tokenCount) tokens 处停止生成。请关闭后台应用释放内存后重试。"
+                                : "\n\n> ⚠️ Low memory, stopped at \(tokenCount) tokens. Close background apps and retry."
+                            continuation.yield(msg)
+                        } else {
+                            let modeLabel = isChinese
+                                ? (thinkingEnabled ? "思考" : "输出")
+                                : (thinkingEnabled ? "Thinking" : "Output")
+                            continuation.yield("\n\n> ⚠️ \(modeLabel)已达单次输出上限（\(resolvedMaxOutputTokens) tokens），内容可能不完整。")
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -731,4 +934,3 @@ public class MLXLocalLLMService: LLMEngine {
         print("[MLX] Model unloaded")
     }
 }
-

@@ -143,77 +143,105 @@ class Gemma4Attention: Module {
         var queries = qProj(x).reshaped(B, L, nHeads, headDim)
         queries = qNorm(queries)
 
-        var offset = 0
-        var keys: MLXArray
-        var values: MLXArray
-
-        if isKvSharedLayer, let cache = cache {
-            // KV-shared layers reuse cached keys/values
-            let state = cache.state
-            if state.count >= 2 {
-                keys = state[0]
-                values = state[1]
-                offset = cache.offset
-            } else {
-                offset = cache.offset
-
-                keys = kProj(x).reshaped(B, L, nKvHeads, headDim)
-                values = vProj(x).reshaped(B, L, nKvHeads, headDim)
-
-                keys = kNorm(keys)
-                values = vNorm(values)
-                values = values.transposed(0, 2, 1, 3)
-
-                keys = keys.transposed(0, 2, 1, 3)
-                keys = applyRope(keys, offset: offset)
-
-                (keys, values) = cache.update(keys: keys, values: values)
-            }
-        } else {
-            if let cache = cache {
-                offset = cache.offset
-            }
-
-            keys = kProj(x).reshaped(B, L, nKvHeads, headDim)
-            values = vProj(x).reshaped(B, L, nKvHeads, headDim)
-
-            keys = kNorm(keys)
-            values = vNorm(values)
-            values = values.transposed(0, 2, 1, 3)
-
-            keys = keys.transposed(0, 2, 1, 3)
-            keys = applyRope(keys, offset: offset)
-
-            if let cache = cache {
-                (keys, values) = cache.update(keys: keys, values: values)
-            }
-        }
-
+        let offset = cache?.offset ?? 0
         queries = queries.transposed(0, 2, 1, 3)
         queries = applyRope(queries, offset: offset)
 
-        // Handle mask dimension mismatch
-        var effectiveMask = mask ?? .none
-        if case .array(let maskArray) = effectiveMask {
-            if maskArray.dim(-1) != keys.dim(-2) {
-                let slicedMask = maskArray[.ellipsis, (maskArray.dim(-1) - keys.dim(-2))...]
-                effectiveMask = .array(slicedMask.asType(queries.dtype))
-            } else {
-                effectiveMask = .array(maskArray.asType(queries.dtype))
+        // Shared-layer path: read K/V from the cache owned by a prior layer.
+        // Quantized shared cache needs quantized SDPA; regular shared cache works
+        // with the raw state arrays.
+        if isKvSharedLayer, let cache = cache {
+            if let qCache = cache as? QuantizedKVCache,
+               let (quantKeys, quantValues) = qCache.getQuantizedState()
+            {
+                let effMask = resolveMask(mask: mask, length: qCache.offset, dtype: queries.dtype)
+                let output = quantizedScaledDotProductAttention(
+                    queries: queries,
+                    quantizedKeys: quantKeys,
+                    quantizedValues: quantValues,
+                    scale: scale,
+                    mask: effMask,
+                    groupSize: qCache.groupSize,
+                    bits: qCache.bits,
+                    mode: qCache.mode
+                )
+                return oProj(output.transposed(0, 2, 1, 3).reshaped(B, L, -1))
             }
+            let state = cache.state
+            if state.count >= 2 {
+                let sharedKeys = state[0]
+                let sharedValues = state[1]
+                let effMask = resolveMask(
+                    mask: mask, length: sharedKeys.dim(-2), dtype: queries.dtype)
+                let output = MLXFast.scaledDotProductAttention(
+                    queries: queries,
+                    keys: sharedKeys,
+                    values: sharedValues,
+                    scale: scale,
+                    mask: effMask
+                )
+                return oProj(output.transposed(0, 2, 1, 3).reshaped(B, L, -1))
+            }
+            // state empty — source layer hasn't written yet; fall through and
+            // behave like a non-shared layer (writes to cache). Normal model
+            // layer order shouldn't reach this branch.
         }
 
+        // Non-shared path: compute raw K/V, then dispatch by cache type.
+        var keys = kProj(x).reshaped(B, L, nKvHeads, headDim)
+        var values = vProj(x).reshaped(B, L, nKvHeads, headDim)
+        keys = kNorm(keys)
+        values = vNorm(values)
+        values = values.transposed(0, 2, 1, 3)
+        keys = keys.transposed(0, 2, 1, 3)
+        keys = applyRope(keys, offset: offset)
+
+        if let qCache = cache as? QuantizedKVCache {
+            let (quantKeys, quantValues) = qCache.updateQuantized(keys: keys, values: values)
+            let effMask = resolveMask(mask: mask, length: qCache.offset, dtype: queries.dtype)
+            let output = quantizedScaledDotProductAttention(
+                queries: queries,
+                quantizedKeys: quantKeys,
+                quantizedValues: quantValues,
+                scale: scale,
+                mask: effMask,
+                groupSize: qCache.groupSize,
+                bits: qCache.bits,
+                mode: qCache.mode
+            )
+            return oProj(output.transposed(0, 2, 1, 3).reshaped(B, L, -1))
+        }
+
+        if let cache = cache {
+            (keys, values) = cache.update(keys: keys, values: values)
+        }
+
+        let effMask = resolveMask(mask: mask, length: keys.dim(-2), dtype: queries.dtype)
         let output = MLXFast.scaledDotProductAttention(
             queries: queries,
             keys: keys,
             values: values,
             scale: scale,
-            mask: effectiveMask
+            mask: effMask
         )
         .transposed(0, 2, 1, 3)
         .reshaped(B, L, -1)
 
         return oProj(output)
+    }
+
+    private func resolveMask(
+        mask: MLXFast.ScaledDotProductAttentionMaskMode?,
+        length: Int,
+        dtype: DType
+    ) -> MLXFast.ScaledDotProductAttentionMaskMode {
+        let input = mask ?? .none
+        guard case .array(let arr) = input else { return input }
+        if arr.dim(-1) != length {
+            let sliced = arr[.ellipsis, (arr.dim(-1) - length)...]
+            return .array(sliced.asType(dtype))
+        }
+        return .array(arr.asType(dtype))
     }
 
     private func applyRope(_ x: MLXArray, offset: Int) -> MLXArray {

@@ -1,7 +1,16 @@
 import CoreImage
 import Foundation
 import MLXLMCommon
+#if canImport(UIKit)
 import UIKit
+// 跨平台 image 类型别名 —— iOS 真编 UIKit 路径, macOS CLI 自动走 CIImage.
+// AgentEngine 的 processInput(images:) 签名用这个别名, 调用端在各自平台用
+// 自己的自然类型; iOS 二进制行为零改变 (UIImage == PlatformImage).
+typealias PlatformImage = UIImage
+#else
+// macOS CLI: 不测图像输入场景, PlatformImage 只是签名占位.
+typealias PlatformImage = CIImage
+#endif
 
 func log(_ message: String) {
     print(message)
@@ -61,7 +70,6 @@ ___CONTENT_SKILLS___
 用中文回答，简洁实用。
 """
 
-
 // MARK: - Agent Engine
 
 @Observable
@@ -92,13 +100,19 @@ class AgentEngine {
     let plannerRevision = "planner-v3-local-selection"
     var sessionSaveTask: Task<Void, Never>?
 
+    // 暴露给 CLI ScenarioRunner — 它需要知道每轮 Router 实际匹配到了哪些 skill
+    // (含 sticky), 才能对 YAML scenario 的 `skills:` 断言. iOS UI 完全不读这个,
+    // 所以暴露成普通 var 没有任何运行时影响.
+    var lastTurnMatchedSkillIds: [String] = []
+
 
     var enabledSkillInfos: [SkillInfo] {
         skillEntries.filter(\.isEnabled).map {
             SkillInfo(name: $0.id, description: $0.description,
                      displayName: $0.name, icon: $0.icon,
                      type: $0.type, samplePrompt: $0.samplePrompt,
-                     chipPrompt: $0.chipPrompt)
+                     chipPrompt: $0.chipPrompt,
+                     chipLabel: $0.chipLabel)
         }
     }
 
@@ -238,6 +252,13 @@ class AgentEngine {
 
     func reloadModel() {
         let selectedModelID = config.selectedModelID
+        // 持久化用户选择 — 单一入口, 任何 caller (ConfigurationsView.applySettings,
+        // 未来其它切模型路径) 调 reloadModel 后, UserDefaults 自动同步,
+        // 下次 app 启动 ModelConfig.selectedModelID 能恢复正确值.
+        UserDefaults.standard.set(
+            selectedModelID,
+            forKey: ModelConfig.selectedModelDefaultsKey
+        )
         Task { [weak self] in
             guard let self else { return }
             self.isProcessing = false
@@ -264,16 +285,17 @@ class AgentEngine {
 
     func processInput(
         _ text: String,
-        images: [UIImage] = [],
-        audio: AudioCaptureSnapshot? = nil
+        images: [PlatformImage] = [],
+        audio: AudioCaptureSnapshot? = nil,
+        replayImageAttachments: [ChatImageAttachment]? = nil
     ) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayText = trimmed
-        let attachments = images.compactMap(ChatImageAttachment.init(image:))
+        let attachments = replayImageAttachments ?? images.compactMap(ChatImageAttachment.init(image:))
         let audioClips = audio.flatMap(ChatAudioAttachment.init(snapshot:)).map { [$0] } ?? []
         let audioAttachment = audio.map(UserInput.Audio.from(snapshot:))
         let normalizedText: String
-        if trimmed.isEmpty, !images.isEmpty {
+        if trimmed.isEmpty, !attachments.isEmpty {
             normalizedText = "请描述这张图片。"
         } else if trimmed.isEmpty, audio != nil {
             normalizedText = "请直接转写这段音频内容。"
@@ -296,11 +318,25 @@ class AgentEngine {
         applySamplingConfig()
 
         let matchedSkillIdsForTurn = requiresMultimodal ? [] : matchedSkillIds(for: normalizedText)
-        // TODO(Step 4): 接入 llm.selectedModel.supportsStructuredPlanning 后 gate Planner 入口
+        // 暴露给 CLI harness (ScenarioRunner) 做断言. iOS UI 不读, 0 行为影响.
+        self.lastTurnMatchedSkillIds = matchedSkillIdsForTurn
+        // T2 (2026-04-17): 把 Planner 入口从 matched>=2 降到 matched>=1.
+        //
+        // 动机: Router 的 substring trigger 命中存在大量边界 fail (e.g. 用户说
+        // "评审会"但 trigger 是"会议", 用户说"查王总电话"但 trigger 是"查电话"),
+        // 漏掉一个 skill → planner 没被触发 → 多 skill 任务退化成单 skill agent 路径,
+        // T2c-revert (2026-04-17): 恢复 matched>=2 门槛.
+        //
+        // T2c 把门槛从 >=2 改成 >=1, 让 Selection LLM 每轮都跑.
+        // 真机验证: Selection 每次 ~1400 tok 全量 prefill (KV hit 4-6%),
+        // E4B 稳态 headroom ~1000-1200 MB, 多轮必崩 (jetsam).
+        // 且 Selection 实际表现: matched=1 返回同一个 skill (白跑),
+        // matched=2 返回子集 (比 Router 更差). 收益 < 0, 风险 = jetsam.
+        //
+        // 回到 >=2: 单 skill 直接 agent 路径, 不进 Planner, 不跑 Selection.
         let shouldUsePlanner = !requiresMultimodal && matchedSkillIdsForTurn.count >= 2
         let shouldUseFullAgentPrompt =
             !requiresMultimodal
-            && !shouldUsePlanner
             && shouldUseToolingPrompt(for: normalizedText)
         let activeSkillInfos: [SkillInfo]
         if shouldUseFullAgentPrompt {
@@ -350,30 +386,38 @@ class AgentEngine {
         let msgIndex = messages.count - 1
 
         if requiresMultimodal {
-            let multimodalChat: [Chat.Message] = [
-                .system(
-                    PromptBuilder.multimodalSystemPrompt(
-                        hasImages: !promptImages.isEmpty,
-                        hasAudio: audioAttachment != nil
-                    )
-                ),
+            // Pure-vision path 默认返回空 system prompt (见 PromptBuilder.multimodalSystemPrompt),
+            // 空字符串时跳过 .system(...) 注入, 让 Gemma 4 只看 image + user text,
+            // 避免任何 system 框架把小模型带进"请提供图片"漂移.
+            let systemPrompt = PromptBuilder.multimodalSystemPrompt(
+                hasImages: !promptImages.isEmpty,
+                hasAudio: audioAttachment != nil
+            )
+            var multimodalChat: [Chat.Message] = []
+            if !systemPrompt.isEmpty {
+                multimodalChat.append(.system(systemPrompt))
+            }
+            multimodalChat.append(
                 .user(
                     normalizedText,
                     images: promptImages.map { .ciImage($0) },
                     audios: audioAttachment.map { [$0] } ?? []
-                ),
-            ]
+                )
+            )
             let multimodalContext: [String: any Sendable]? =
                 config.enableThinking ? ["enable_thinking": true] : nil
             var multimodalBuffer = ""
 
             llm.generateStream(chat: multimodalChat, additionalContext: multimodalContext) { [weak self] token in
-                guard let self = self else { return }
+                guard let self = self,
+                      self.messages.indices.contains(msgIndex) else { return }
                 multimodalBuffer += token
                 let cleaned = self.cleanOutputStreaming(multimodalBuffer)
                 self.messages[msgIndex].update(content: (cleaned.isEmpty ? "" : cleaned) + "▍")
             } onComplete: { [weak self] result in
                 guard let self = self else { return }
+                defer { self.isProcessing = false }
+                guard self.messages.indices.contains(msgIndex) else { return }
                 switch result {
                 case .success(let fullText):
                     log("[Agent] 1st raw: \(fullText.prefix(300))")
@@ -385,53 +429,76 @@ class AgentEngine {
                     log("[Agent] multimodal failed: \(error.localizedDescription)")
                     self.messages[msgIndex].update(role: .system, content: "❌ \(error.localizedDescription)")
                 }
-                self.isProcessing = false
             }
             return
         }
 
-        // Router 确定性匹配到的 skill: 直接预加载 body + 工具列表,
+        // Router 确定性匹配到的 skill: 预加载 tool 调用 schema + 工具白名单,
         // 让模型在 round 1 就看到 schema, 跳过 load_skill 往返。对小模型
         // (E2B/E4B) 效果显著 — 避免它们在"要不要 load_skill"这种主观判断上翻车。
+        //
+        // Path 1-B (2026-04-17): memory-aware degradation.
+        //   - 内存富余 (HARNESS Mac, 真机第一轮): 用完整 SKILL body, 保留所有
+        //     行为细则 (追问逻辑, 跨轮合并, 多 tool 内部路由).
+        //   - 内存吃紧 (真机第 2/3 轮起, headroom < 1500 MB): 退化到 compactSchema,
+        //     ~200 chars/SKILL, 牺牲行为细节换 prefill 内存峰值, 避免 jetsam.
+        //
+        // 不是规则, 是 memory-pressure-aware degradation —— 跟 jetsam 共生的
+        // 工程实践. 阈值 1500 MB 是经验值 (E4B 单次 prefill ~700MB 峰值 + safety).
+        let useCompactSchema = llm.availableHeadroomMB < 1500
+        if useCompactSchema {
+            log("[Agent] preload compact schema (headroom=\(llm.availableHeadroomMB) MB < 1500)")
+        }
         let preloadedSkills: [PromptBuilder.PreloadedSkill] = matchedSkillIdsForTurn.compactMap { id in
             guard let body = skillRegistry.loadBody(skillId: id),
                   let def = skillRegistry.getDefinition(id) else { return nil }
+            let registered = registeredTools(for: id)
+            let toolTuples = registered.map { (name: $0.name, description: $0.description, parameters: $0.parameters, requiredParameters: $0.requiredParameters) }
+            let compact = PromptBuilder.PreloadedSkill.makeCompactSchema(
+                skillName: def.metadata.name,
+                tools: toolTuples
+            )
+            // 当 headroom 充裕, 把 body 同时塞进 compactSchema 字段, prompt 用的就是 body
+            // (零行为变化). 当 headroom 紧, compactSchema 是真紧凑版本, prompt 用紧凑.
             return PromptBuilder.PreloadedSkill(
                 id: id,
                 displayName: def.metadata.name,
                 body: body,
-                allowedTools: def.metadata.allowedTools
+                allowedTools: def.metadata.allowedTools,
+                compactSchema: useCompactSchema ? compact : body
             )
         }
 
-        let prompt: String
-        if shouldUseFullAgentPrompt {
-            prompt = PromptBuilder.build(
-                userMessage: normalizedText,
-                currentImageCount: attachments.count,
-                tools: activeSkillInfos,
-                history: messages,
-                systemPrompt: config.systemPrompt,
-                enableThinking: config.enableThinking,
-                historyDepth: historyDepth,
-                showListSkillsHint: matchedSkillIdsForTurn.isEmpty,
-                preloadedSkills: preloadedSkills
-            )
-        } else {
-            prompt = PromptBuilder.buildLightweightTextPrompt(
-                userMessage: normalizedText,
-                history: messages,
-                systemPrompt: config.systemPrompt,
-                enableThinking: config.enableThinking,
-                historyDepth: shouldUsePlanner ? plannerHistoryDepth : historyDepth
-            )
-        }
-        log("[Agent] text prompt mode=\(shouldUseFullAgentPrompt ? "agent" : "light"), chars=\(prompt.count), skills=\(activeSkillInfos.count)")
+        // T2 (2026-04-17): 当 matched>=1, planner 和 agent 路径同时可能跑.
+        // - Planner 入参用 LIGHT prompt (它内部只取 system block, 大 agent prompt
+        //   会让 plan JSON 翻车 — E4B 在 3.6K char 输入下截断).
+        // - 落回单 skill streaming 用 agent prompt (含 preloaded SKILL body, 能调 tool).
+        let agentPrompt: String? = shouldUseFullAgentPrompt ? PromptBuilder.build(
+            userMessage: normalizedText,
+            currentImageCount: attachments.count,
+            tools: activeSkillInfos,
+            history: messages,
+            systemPrompt: config.systemPrompt,
+            enableThinking: config.enableThinking,
+            historyDepth: historyDepth,
+            showListSkillsHint: matchedSkillIdsForTurn.isEmpty,
+            preloadedSkills: preloadedSkills
+        ) : nil
+        let lightPrompt: String = PromptBuilder.buildLightweightTextPrompt(
+            userMessage: normalizedText,
+            history: messages,
+            systemPrompt: config.systemPrompt,
+            enableThinking: config.enableThinking,
+            historyDepth: shouldUsePlanner ? plannerHistoryDepth : historyDepth
+        )
+        let plannerInputPrompt: String = lightPrompt
+        let streamingPrompt: String = agentPrompt ?? lightPrompt
+        log("[Agent] text prompt mode=\(shouldUseFullAgentPrompt ? "agent" : "light"), planner-input-chars=\(plannerInputPrompt.count), streaming-chars=\(streamingPrompt.count), skills=\(activeSkillInfos.count)")
 
         if shouldUsePlanner {
             log("[Agent] planner path triggered revision=\(plannerRevision)")
             let plannerHandled = await executePlannedSkillChainIfPossible(
-                prompt: prompt,
+                prompt: plannerInputPrompt,
                 userQuestion: normalizedText,
                 images: promptImages
             )
@@ -445,19 +512,10 @@ class AgentEngine {
                 return
             }
 
-            if messages.indices.contains(msgIndex),
-               messages[msgIndex].role == .assistant,
-               messages[msgIndex].content == "▍" {
-                messages.remove(at: msgIndex)
-            }
-            messages.append(
-                ChatMessage(
-                    role: .assistant,
-                    content: "⚠️ 已识别到多个 Skill，但当前无法完成编排。请补充更具体的信息后重试。"
-                )
-            )
-            isProcessing = false
-            return
+            // T2 (2026-04-17): planner 未处理 (Selection LLM 判定真单 skill) →
+            // 不显示错误, 沉默地落回单 skill agent 路径 (placeholder ▍ 还在,
+            // 下面 streaming 代码会填充).
+            log("[Agent] planner not handled, falling back to single-skill agent path")
         }
 
 
@@ -465,8 +523,9 @@ class AgentEngine {
         var buffer = ""
         var bufferFlushed = false
 
-        llm.generateStream(prompt: prompt, images: promptImages, audios: []) { [weak self] token in
-            guard let self = self else { return }
+        llm.generateStream(prompt: streamingPrompt, images: promptImages, audios: []) { [weak self] token in
+            guard let self = self,
+                  self.messages.indices.contains(msgIndex) else { return }
 
             if detectedToolCall {
                 buffer += token
@@ -495,6 +554,8 @@ class AgentEngine {
             }
         } onComplete: { [weak self] result in
             guard let self = self else { return }
+            defer { self.isProcessing = false }
+            guard self.messages.indices.contains(msgIndex) else { return }
             switch result {
             case .success(let fullText):
                 log("[Agent] 1st raw: \(fullText.prefix(300))")
@@ -503,7 +564,7 @@ class AgentEngine {
                     self.messages[msgIndex].update(content: "")
                     Task {
                         await self.executeToolChain(
-                            prompt: prompt,
+                            prompt: streamingPrompt,
                             fullText: fullText,
                             userQuestion: normalizedText,
                             images: promptImages
@@ -519,7 +580,6 @@ class AgentEngine {
             case .failure(let error):
                 self.messages[msgIndex].update(role: .system, content: "❌ \(error.localizedDescription)")
             }
-            self.isProcessing = false
         }
     }
 
@@ -547,7 +607,8 @@ class AgentEngine {
             var toolCallDetected = false
             var bufferFlushed = false
             llm.generateStream(prompt: prompt, images: images, audios: []) { [weak self] token in
-                guard let self = self else { return }
+                guard let self = self,
+                      self.messages.indices.contains(msgIndex) else { return }
                 buffer += token
 
                 if toolCallDetected { return }
@@ -580,7 +641,9 @@ class AgentEngine {
                     log("[Agent] LLM raw: \(text.prefix(300))")
                     continuation.resume(returning: text)
                 case .failure(let error):
-                    self.messages[msgIndex].update(role: .system, content: "❌ \(error.localizedDescription)")
+                    if self.messages.indices.contains(msgIndex) {
+                        self.messages[msgIndex].update(role: .system, content: "❌ \(error.localizedDescription)")
+                    }
                     continuation.resume(returning: nil)
                 }
             }
@@ -694,4 +757,21 @@ class AgentEngine {
         return String(text[nameRange])
     }
 
+    // MARK: - 重试
+
+    /// 重试最后一轮用户输入。直接复用已持久化的附件数据，不重新编码。
+    func retryLastResponse() async {
+        guard !isProcessing, llm.isLoaded else { return }
+        guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let userMsg = messages[lastUserIndex]
+        // 含音频的轮次不支持重试（AudioCaptureSnapshot 是一次性数据，无法从 WAV 反向构造）
+        guard userMsg.audios.isEmpty else { return }
+
+        let text = userMsg.content
+        let imageAttachments = userMsg.images
+        // 截断：移除该用户消息及之后所有消息
+        messages.removeSubrange(lastUserIndex...)
+        // 重新走 processInput，复用已持久化的 ChatImageAttachment，避免二次 JPEG 编码
+        await processInput(text, replayImageAttachments: imageAttachments)
+    }
 }

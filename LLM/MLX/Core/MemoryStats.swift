@@ -23,9 +23,20 @@ enum MemoryStats {
         return (footprint, limit)
     }
 
-    /// 当前可用内存 headroom (MB), 用于所有 budget 计算。
+    /// 当前可用内存 headroom (MB), 用于所有 budget 计算 (history 深度 / output token / 多模态 tier).
     static var headroomMB: Int {
         let (footprint, limit) = footprintMB()
+        #if os(macOS)
+        // macOS 没 jetsam, task_vm_info.limit_bytes_remaining 永远 0. 直接用 Mac
+        // 物理内存 (60+ GB) 跟 iOS 真机不可比, RuntimeBudgets 看到天文数字会全走
+        // 最高档. 模拟 iPhone jetsam 上限 (~6144 MB iPhone 15/16), 让 Mac 上
+        // (jetsam_sim - footprint) 跟 iOS 真机的 headroom 数学一致 — E2B 加载后
+        // 约 3GB 剩, E4B 约 1GB 剩, 各自命中跟真机一样的 history/output tier.
+        // 这是平台测量对齐 (iOS 测真 jetsam, Mac 模拟同样的 ceiling), 不是 SKILL 规则.
+        let simulatedJetsamMB = 6144
+        return max(0, simulatedJetsamMB - Int(footprint))
+        #else
         return max(0, Int(limit - footprint))
+        #endif
     }
 }

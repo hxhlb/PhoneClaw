@@ -21,13 +21,22 @@ struct PromptBuilder {
         } else if hasImages && hasAudio {
             base = "你是 PhoneClaw，一个运行在本地设备上的多模态助手。请把用户提供的音频视为需要分析的素材，而不是用户此刻正在对你说的话。请根据用户提供的图片、音频和文本直接作答，不要擅自改写用户任务，也不要额外追加不存在的意图。看不清、听不清或不确定时请直接说明，不要编造。如果用户是在询问音频里说了什么，或明确要求转写、识别、逐字写出，请直接给出识别结果，不要复述用户问题，不要寒暄。如果用户明确要求逐字转写，尽量保留原话，不要改写、总结、润色，也不要把音频内容当成需要你回应的对话。用简体中文回答。这是纯多模态问答，不要调用任何工具或技能。"
         } else {
-            base = "你是 PhoneClaw，一个运行在本地设备上的视觉助手。请仅根据图片和用户问题直接作答，并严格遵守以下规则：1. 默认先直接给结论，控制在1到2句内；2. 除非用户明确要求详细说明，否则禁止分点、禁止长篇分析、禁止列举多种可能性；3. 不要写“根据您提供的图片”“从画面中可以看到”等铺垫；4. 如果看不清或不确定，只需简短说明“看不清，像……”，不要编造。优先识别图中的主要物体、用途、场景和可读文本。用简体中文回答。这是纯图文问答，不要调用任何工具或技能。"
+            // Pure-vision (image-only) path: harness (2026-04-18 multimodal-sweep)
+            // 证实任何 system prompt 在 E2B chat path 上都会概率性触发"请提供图片"
+            // 漂移, 原因是前面的 4 条规则(尤其是"看不清就说看不清"模板)给小模型
+            // 递了拒答出口. 空 system prompt 让 image + text 直接喂给 Gemma 4,
+            // E2B 在 "看看这张图" 病例上 refusal 60% → 30%. 其他问法本来就稳.
+            base = ""
         }
 
-        return enableThinking ? base + "\n" + thinkingLanguageInstruction : base
+        if enableThinking {
+            return base.isEmpty ? thinkingLanguageInstruction : base + "\n" + thinkingLanguageInstruction
+        }
+        return base
     }
 
-    private static func imagePromptSuffix(count: Int) -> String {
+    // internal (not private): 被 LLM/LiveVoice/PromptBuilder+LiveVoice.swift 复用
+    static func imagePromptSuffix(count: Int) -> String {
         guard count > 0 else { return "" }
         return "\n" + Array(repeating: "<|image|>", count: count).joined(separator: "\n")
     }
@@ -101,7 +110,8 @@ struct PromptBuilder {
         return head + "\n\n" + trimmedExtra + "\n<turn|>\n"
     }
 
-    private static func sanitizedAssistantHistoryContent(_ text: String) -> String {
+    // internal (not private): 被 LLM/LiveVoice/PromptBuilder+LiveVoice.swift 复用
+    static func sanitizedAssistantHistoryContent(_ text: String) -> String {
         var result = text
 
         while let openRange = result.range(of: thinkingOpenMarker) {
@@ -117,14 +127,21 @@ struct PromptBuilder {
     }
 
     private static func lightweightTextSystemPrompt(systemPrompt: String?) -> String {
+        // 策略: 完整暴露 SYSPROMPT + 强关闭 tool_call 指令尾缀.
+        //
+        // 历史: 曾经只取第一段防 Skill 规则污染 light 路径. 但 CLI harness 实测
+        // (2026-04-16, E2B/E4B × "你是谁"/"翻译"/"删联系人"/"总结"/"天气" 矩阵) 证明:
+        //   1. 全暴露后 Gemma 不会在 light 路径发 <tool_call> (尾缀"严禁输出"
+        //      压制成功, 即使 prompt 里带 <tool_call> 例子也不会自发模仿)
+        //   2. E2B 在"你是谁"场景 persona 显著改善 (能说出 PhoneClaw)
+        //   3. E2B 在"删联系人"场景修掉致命幻觉 —— 只取第一段时 E2B 会回
+        //      "好的，我已经将联系人张三删除了" 假装执行, 全暴露后正确询问
+        //
+        // 代价: E4B × "翻译" 场景会在答首加一句 "我是 Gemma 4..." 自爆身份.
+        // 这是可接受的 trade-off (safety > persona style), 可通过在 SYSPROMPT.md
+        // 第一段加 "禁止自称 Gemma" 进一步缓解.
         let rawBase = (systemPrompt ?? defaultSystemPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
-        let firstParagraph = rawBase
-            .components(separatedBy: "\n\n")
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let base = (firstParagraph?.isEmpty == false ? firstParagraph! : defaultSystemPrompt)
-        return base + "\n\n当前这轮只是普通文字对话，不需要调用任何设备技能或工具。请直接回答用户，避免提到 Skill、load_skill、tool_call 或设备操作流程。用简体中文回答，默认简洁。"
+        return rawBase + "\n\n【当前模式: 闲聊】本轮严禁输出 <tool_call>, 严禁提及 Skill / load_skill / 工具调用. 上文所有 Skill 调用规则本轮一律不适用. 用简体中文直接回答, 默认简洁."
     }
 
     /// Preloaded skill block — Router 已经确定性匹配到 skill 时直接带它们的 body
@@ -133,8 +150,31 @@ struct PromptBuilder {
     struct PreloadedSkill {
         let id: String
         let displayName: String
+        /// Full SKILL.md body — 旧字段, Live voice 路径仍在用. 主 agent 路径改用 compactSchema.
         let body: String
         let allowedTools: [String]
+        /// Path 1 (2026-04-17): 主 agent 路径用紧凑 schema (~200 chars/SKILL) 替代
+        /// 完整 SKILL body (~3000 chars/SKILL). E4B 真机 multi-SKILL 场景 streamingPrompt
+        /// 从 ~5000 chars 降到 ~2000 chars, prefill 内存峰值显著下降, jetsam 不再触发.
+        /// 模型还能拿到 tool 调用 schema, 不丢调用能力. SKILL.md 里的"行为细则"
+        /// (e.g., 跨轮参数合并, 软参不追问) 暂时不进 prompt — 实际跑 HARNESS 验证质量损失.
+        let compactSchema: String
+
+        /// 构造紧凑 schema. tools 是 ToolRegistry 里这个 SKILL 注册的 RegisteredTool 列表.
+        static func makeCompactSchema(skillName: String, tools: [(name: String, description: String, parameters: String, requiredParameters: [String])]) -> String {
+            if tools.isEmpty {
+                return "（content-type SKILL, 无 tool, 按 SKILL 指令直接生成文本结果）"
+            }
+            var lines: [String] = []
+            for t in tools {
+                lines.append("- `\(t.name)`: \(t.description)")
+                lines.append("  参数: \(t.parameters)")
+                if !t.requiredParameters.isEmpty {
+                    lines.append("  必填: \(t.requiredParameters.joined(separator: ", "))")
+                }
+            }
+            return lines.joined(separator: "\n")
+        }
     }
 
     /// 构造完整 Prompt（包含工具定义 + 对话历史）
@@ -223,13 +263,23 @@ struct PromptBuilder {
             }
             for sk in preloadedSkills {
                 prompt += "\n━━ Skill: \(sk.displayName) ━━\n"
-                prompt += sk.body + "\n"
+                prompt += sk.compactSchema + "\n"
             }
             prompt += "━━━━━━━━━━━━━━━━━━━━\n"
         }
 
         if enableThinking && !isMultimodalTurn {
             prompt += "\n\n" + thinkingLanguageInstruction
+        }
+
+        // 时间锚点 — 必须在 system block 内, 模型才能算 "明天下午两点" → ISO 8601.
+        // 历史: 2026-04-17 真机日历创建 bug 根因. SKILL.md 里有 "结合 system prompt
+        // 的当前时间锚点算出 ISO 8601" 这种指令, 但 round 1 prompt 一直没注入锚点
+        // (只有 secondary prompt 走 extractSystemBlock 时才注入). 结果 E4B 瞎编日期
+        // (2026-04-08 而非"明天"), E2B 直接输出中文字面 "明天下午2:00" 让 tool 解析
+        // 失败. harness agent-e2e 复现+证实. multimodal turn 不带 (那条路径不走 SKILL).
+        if !isMultimodalTurn {
+            prompt += "\n\n" + currentTimeAnchorBlock()
         }
 
         prompt += "\n<turn|>\n"
@@ -372,8 +422,55 @@ struct PromptBuilder {
         return prompt
     }
 
-    /// 工具执行完成后，重新构造一个最小回答 prompt，避免把上一轮 tool_call
-    /// 和完整历史继续累积到 follow-up 中。
+    /// **F3 (2026-04-17)**: R2 prompt = R1 cached prompt + R1 model output + tool_result message.
+    /// 物理上是同一个 conversation 的延伸 (跟 Anthropic/OpenAI tool_use 协议一致),
+    /// 不再重新构造 R2 system block. KV cache 自然 reuse R1 全部 token, 只 prefill
+    /// 末尾几十 token 的 tool_result message — 跨 R1/R2 命中率从 6% → 99%+.
+    ///
+    /// E2B 5-round repeat 防御机制: tool_result message 内嵌**极强 anti-repeat 指令**,
+    /// 同时利用模型见过的 tool_use 训练格式 (assistant tool_call → tool_result → assistant text)
+    /// 自然引导模型生成文本 (而非再 emit tool_call).
+    ///
+    /// `r1Output` 必须包含 R1 generated 的完整文本 (含 <tool_call> 标签). caller
+    /// 不应清洗 — 物理上模型在 R2 看到自己刚说过什么, 才能正确续写.
+    static func appendToolResult(
+        toR1Prompt r1Prompt: String,
+        r1Output: String,
+        toolName: String,
+        toolResultSummary: String
+    ) -> String {
+        // R1 prompt 末尾是 "<|turn>model\n" — caller 已经 emit r1Output 之后, 我们
+        // 补 turn 关闭 + tool_result user turn + 新的 model turn 起手.
+        //
+        // Prompt 设计**极简** (Anthropic tool_use 风格): 模型见过这种训练格式
+        // (assistant tool_call → user tool_result → assistant text), 自然知道接下来
+        // 该用文本回答. 长 anti-repeat / "严禁 X / 不要 Y / 不能 Z" 指令链实测让 E2B
+        // 直接 emit EOS (0 token 空回复, 真机验证).
+        return r1Prompt + r1Output + """
+        <turn|>
+        <|turn>user
+        \(toolResultSummary)
+        <turn|>
+        <|turn>model
+
+        """
+    }
+
+    /// 工具执行完成后, 构造 follow-up prompt 让模型用 tool_result 回答用户.
+    ///
+    /// **历史 / 设计权衡 (2026-04-17 数据驱动决策)**:
+    /// - 试 1 (lean R2 system): 修了 E2B 5-round repeat tool_call, 但 system block
+    ///   跟 R1 不一致 → KV cache 跨 R1/R2 几乎全 miss (common=17 token), 真机 E4B
+    ///   长 prompt 闪崩 (delta=2021 token 重算).
+    /// - 试 2 (full R2 system + 强 anti-repeat): KV 命中率回升到 78-95%, E4B 不崩.
+    ///   但 E2B 被 system 里的 SKILL body "理想流程模板" 带跑, tool 真返失败时
+    ///   E2B 反而幻觉成功 (例: contacts 多人匹配, tool 返"匹配多个", E2B 答"已删除").
+    ///   E2B conversation 13/18 → 11/18.
+    ///
+    /// 当前选 lean R2 — 优先 E2B 准确性 (用户实际部署模型). KV 命中率优化作为
+    /// 后续框架级 refactor (移 SKILL body 到 user turn 解决根本性的 R1/R2 system
+    /// block 冲突). 真机 E4B 闪崩的根因 (KV cache miss → 长 delta) 改用 R2 不
+    /// 污染 R1 cache 的方案缓解 (TODO: cache snapshot/restore around R2).
     static func buildToolAnswerPrompt(
         originalPrompt: String,
         toolName: String,
@@ -381,9 +478,15 @@ struct PromptBuilder {
         userQuestion: String,
         currentImageCount: Int = 0
     ) -> String {
-        let systemBlock = extractSystemBlock(from: originalPrompt)
+        let leanSystemBlock = """
+        <|turn>system
+        \(defaultSystemPrompt) 用中文回答, 简洁实用.
+        \(currentTimeAnchorBlock())
+        <turn|>
 
-        return systemBlock + extractHistoryBlock(from: originalPrompt) + """
+        """
+
+        return leanSystemBlock + extractHistoryBlock(from: originalPrompt) + """
         <|turn>user
         用户原始问题：
         \(userQuestion)\(imagePromptSuffix(count: currentImageCount))
@@ -438,11 +541,10 @@ struct PromptBuilder {
         1. 不要调用工具，不要输出 `<tool_call>`。
         2. 只输出一个 JSON object，内容就是 arguments 本身。
         3. 不要输出 Markdown、代码块、解释、字段草稿或多余文字。
-        4. 可选字段如果没有，就直接省略。
+        4. 可选字段如果没有，就直接省略。tool 参数说明里标"可选"的字段不算必填.
         5. 时间字段必须转换成 ISO 8601，例如 `2026-04-07T20:00:00`。
-        6. 如果缺少必填参数,只输出一个 JSON object: {"_needs_clarification": "..."}。
-           "..." 部分必须用一句完整中文,直接陈述当前请求缺哪个具体参数,
-           不能含尖括号、不能含占位符、不能复制本规则的任何字面文本。
+        6. 只有用户原话完全没说某个必填参数, 才输出 _needs_clarification 字段+一句具体追问.
+           绝大多数情况应该直接给 arguments, 不要轻易追问. 可选字段缺失绝不追问.
         <turn|>
         <|turn>model
 
@@ -489,9 +591,8 @@ struct PromptBuilder {
         4. `arguments` 里只保留当前工具需要的参数；没有的可选参数直接省略。
         5. 不要输出 Markdown、代码块、解释、草稿或多余文字。
         6. 时间字段必须转换成 ISO 8601，例如 `2026-04-07T20:00:00`。
-        7. 如果缺少执行所需的关键信息,只输出一个 JSON object: {"_needs_clarification": "..."}。
-           "..." 部分必须用一句完整中文,直接陈述当前请求缺哪个具体信息,
-           不能含尖括号、不能含占位符、不能复制本规则的任何字面文本。
+        7. 只有用户原话完全没说某个执行必需的信息, 才输出 _needs_clarification 字段+一句具体追问.
+           绝大多数情况直接给 name+arguments, 不要轻易追问.
         <turn|>
         <|turn>model
 
@@ -547,8 +648,8 @@ struct PromptBuilder {
         3. 如果任务需要先获取一个结果、再交给另一个 Skill 继续处理,涉及到的所有 Skill 都要列出来,不要只写最终那一个。
         4. 如果"最近已知的工具结果摘要"已经提供了部分信息,也要据此补全后续需要的 Skill,不要漏掉。
         5. 如果用户需求不需要任何 Skill,返回空数组 `[]`。
-        6. 如果无法判断需要哪些 Skill,返回:
-           {"required_skills": [], "needs_clarification": "请说明具体需要什么帮助"}
+        6. 如果完全无法判断, 返回 required_skills 为空数组, 同时把 needs_clarification 字段
+           填成一句具体追问 (用一句中文陈述需要追问什么, 不要复读本规则的字面文本).
         <turn|>
         <|turn>model
 
@@ -613,8 +714,8 @@ struct PromptBuilder {
         5. 如果不需要任何技能或工具，返回 `steps: []`。
         6. 如果后续步骤需要的信息可以通过前置步骤获得，或者已经出现在"最近已知的工具结果摘要"里，仍然要先把这些步骤规划出来，不要提前提问。
         7. 只要 `steps` 里还能放入至少一个可执行步骤，`needs_clarification` 就必须是 null。
-        8. 只有在没有任何可行步骤可以获得关键缺失信息时，才返回：
-           {"goal":"", "steps": [], "needs_clarification": "请说明具体需要什么"}
+        8. 只有在完全没有任何可行步骤可以获得关键缺失信息时, 才把 steps 留空数组,
+           同时把 needs_clarification 字段填成一句具体追问 (一句中文, 不要复读本规则的字面文本).
         <turn|>
         <|turn>model
 
@@ -667,9 +768,61 @@ struct PromptBuilder {
         4. 可选字段如果没有，就直接省略。
         5. 如果上面的已完成步骤里已经包含当前工具需要的信息，可以直接引用那些结果来补齐参数。
         6. 时间字段必须转换成 ISO 8601，例如 `2026-04-07T20:00:00`。
-        7. 如果缺少必填参数,只输出一个 JSON object: {"_needs_clarification": "..."}。
-           "..." 部分必须用一句完整中文,直接陈述当前步骤缺哪个具体参数,
-           不能含尖括号、不能含占位符、不能复制本规则的任何字面文本。
+        7. 只有用户原话完全没说某个必填参数 (tool 描述里标"可选"的不算必填),
+           才输出 _needs_clarification 字段+一句具体追问. 绝大多数情况直接给 arguments.
+        <turn|>
+        <|turn>model
+
+        """
+    }
+
+    /// Planner v3 chained 任务里执行 **content-type SKILL** 一步 (例如 translate).
+    /// content SKILL 没 tool 可调, 模型按 SKILL.md 指令直接生成文本结果. 该结果
+    /// 既作为 R2 给用户看, 也作为后续 step 的 prior result.
+    ///
+    /// Prompt 结构: 复用 R1 system block (含 SKILL list, 但不复用 SKILL body
+    /// 因为我们这里显式给) + history + user turn 含: SKILL body + 完成步骤摘要 +
+    /// 当前 step intent + 用户原问.
+    static func buildContentStepPrompt(
+        originalPrompt: String,
+        userQuestion: String,
+        skillInstructions: String,
+        stepIntent: String,
+        completedStepSummary: String = "",
+        currentImageCount: Int = 0
+    ) -> String {
+        let systemBlock = extractSystemBlock(from: originalPrompt)
+
+        // 关键: prior step 结果用三引号包裹明确隔离, 让 SKILL (例如 translate) 按
+        // 自己规则准确识别"源文本". 之前 prior result 跟 user 原问题混在一起,
+        // model 错把 user 原话当源文本翻译了 — 真机 E4B "读剪贴板, 翻译成英文"
+        // 输出 "Read clipboard, translate to English." 复述用户原话, 没翻译剪贴板内容.
+        let priorResultBlock: String
+        if completedStepSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            priorResultBlock = ""
+        } else {
+            priorResultBlock = """
+
+                上游步骤的输出 (这是本步的输入数据):
+                \"\"\"
+                \(completedStepSummary)
+                \"\"\"
+
+                """
+        }
+
+        return systemBlock + extractHistoryBlock(from: originalPrompt) + """
+        <|turn>user
+        本步目标 (Skill 任务): \(stepIntent)
+        \(priorResultBlock)
+        按下面 Skill 指令处理上述输入数据 (这一步没有 tool 可调, 直接输出最终文本结果):
+
+        \(skillInstructions)
+
+        重要:
+        - 输入数据是上面三引号里的内容, 不是用户原问.
+        - 直接输出最终文本结果, 不复述输入, 不解释过程.
+        - 不要 emit `<tool_call>`, 不要 Markdown 代码块.
         <turn|>
         <|turn>model
 

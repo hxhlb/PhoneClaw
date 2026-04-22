@@ -2,6 +2,39 @@ import Foundation
 import MLX
 import MLXLMCommon
 
+// MARK: - KV Reuse Benchmark
+//
+// 框架级 cache reuse 聚合统计 (顶层 enum, 跨模块可访问).
+// CLI ScenarioRunner 在每个 scenario 前后调 reset/snapshot 收集数据, 用来
+// 对比不同 prompt 设计下的 token 消耗 + 命中率. iOS UI 不读, 0 行为影响.
+public enum KVReuseBenchmark {
+    public private(set) static var totalPromptTokens: Int = 0
+    public private(set) static var totalCommonTokens: Int = 0
+    public private(set) static var totalDeltaTokens: Int = 0
+    public private(set) static var turnCount: Int = 0
+    public private(set) static var freshCacheCount: Int = 0
+
+    public static func reset() {
+        totalPromptTokens = 0
+        totalCommonTokens = 0
+        totalDeltaTokens = 0
+        turnCount = 0
+        freshCacheCount = 0
+    }
+
+    static func record(promptTokens: Int, commonPrefix: Int, deltaTokens: Int, isFresh: Bool) {
+        totalPromptTokens += promptTokens
+        totalCommonTokens += commonPrefix
+        totalDeltaTokens += deltaTokens
+        turnCount += 1
+        if isFresh { freshCacheCount += 1 }
+    }
+
+    public static var hitRatePercent: Int {
+        totalPromptTokens == 0 ? 0 : Int(round(Double(totalCommonTokens) * 100 / Double(totalPromptTokens)))
+    }
+}
+
 // MARK: - KV Cache Reuse
 //
 // Cross-turn prompt prefix caching for text-only inference.
@@ -83,11 +116,17 @@ extension MLXLocalLLMService {
             }
             let deltaIds = Array(flatTokens[commonPrefix...])
             let deltaInput = makeLMInput(fromTokens: deltaIds)
+            // 命中率 = common / new — 高命中率意味着这个 prompt 跟上一个 prompt
+                // 共享 token 多, KV cache 复用收益大. <50% 通常说明 prompt 结构在
+                // 跨 turn 之间变化大 (例如不同 SKILL body / system 块换 lean 等),
+                // 应该回查 PromptBuilder 是不是没保持结构稳定.
+            let hitRate = flatTokens.isEmpty ? 0 : Int(round(Double(commonPrefix) * 100 / Double(flatTokens.count)))
             print(
                 "[MLX] KV reuse — cached=\(cachedPromptTokens.count)t "
                     + "new=\(flatTokens.count)t common=\(commonPrefix)t "
-                    + "delta=\(deltaIds.count)t"
+                    + "delta=\(deltaIds.count)t hit=\(hitRate)%"
             )
+            KVReuseBenchmark.record(promptTokens: flatTokens.count, commonPrefix: commonPrefix, deltaTokens: deltaIds.count, isFresh: false)
             return KVReusePlan(
                 cache: cache,
                 deltaInput: deltaInput,
@@ -112,6 +151,7 @@ extension MLXLocalLLMService {
         let newCache = model.newCache(parameters: parameters)
         let fullInput = makeLMInput(fromTokens: flatTokens)
         print("[MLX] KV reuse — fresh cache, prompt=\(flatTokens.count)t")
+        KVReuseBenchmark.record(promptTokens: flatTokens.count, commonPrefix: 0, deltaTokens: flatTokens.count, isFresh: true)
         return KVReusePlan(
             cache: newCache,
             deltaInput: fullInput,
@@ -135,6 +175,23 @@ extension MLXLocalLLMService {
         }
         activeCache = plan.cache
         cachedPromptTokens = plan.fullPromptTokens
+        logKVCacheBytes(plan.cache, promptTokens: targetLen)
+    }
+
+    /// Log KV-cache memory footprint (effective bytes across all layers/arrays).
+    /// Useful for comparing fp16 baseline vs 4/8-bit quantized cache.
+    private func logKVCacheBytes(_ caches: [KVCache], promptTokens: Int) {
+        var totalBytes = 0
+        var quantLayers = 0
+        for cache in caches {
+            if cache is QuantizedKVCacheProtocol { quantLayers += 1 }
+            for arr in cache.state {
+                totalBytes += arr.nbytes
+            }
+        }
+        let kb = totalBytes / 1024
+        let tag = quantLayers > 0 ? "quant=\(quantLayers)/\(caches.count)" : "fp16"
+        print("[MLX] KV cache bytes — \(kb) KB across \(caches.count) layers (\(tag), prompt=\(promptTokens)t)")
     }
 
     /// Drop any cached state. Call on model reload, cancellation, multimodal

@@ -27,6 +27,20 @@
 
 PhoneClaw 是一个运行在 iPhone 上的本地 AI Agent。它使用 Gemma 4 在设备端完成推理，不依赖云端，不上传聊天内容。
 
+## 2026-04-20 更新
+
+- 发布未签名 IPA，可通过 [Sideloadly](https://sideloadly.io/) 签名安装到 iPhone，无需 Xcode 和 Mac 开发环境。[下载地址](https://github.com/kellyvv/PhoneClaw/releases/tag/v1.1.0)
+
+## 2026-04-18 更新
+
+- 新增 LIVE 模式语音相关模型 APP 内下载，在配置页面直接下载就可以体验
+
+## 2026-04-17 更新
+
+- 新增 **LIVE 模式**：全新的实时语音交互模式，支持自然对话，随时打断，无需等待模型说完即可插话
+- LIVE 模式支持**开启摄像头**，模型可以识别和理解当前摄像头画面中的环境、物体和场景，实现"看到什么说什么"的多模态实时交互
+
+
 ## 2026-04-10 更新
 
 - 新增健康数据 Skill，支持查询今日/昨日步数、本周步数趋势、步行距离、活动卡路里、静息心率、昨晚睡眠、本周睡眠、最近运动记录，共 9 项能力，数据全部在本地读取不上传
@@ -152,6 +166,24 @@ hf download mlx-community/gemma-4-e4b-it-4bit --local-dir ./Models/gemma-4-e4b-i
 ```
 
 然后把两个模型 folder reference 都加回 Xcode 的 `Copy Bundle Resources`。
+
+**LIVE 模式（语音交互）额外模型**
+
+如果你需要使用 LIVE 模式的语音识别和语音合成，需要额外下载 ASR 和 TTS 模型：
+
+```bash
+# ASR — 中文流式语音识别 (zipformer, int8, ~160MB)
+hf download csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30 \
+  --local-dir ./Models/sherpa-asr-zh \
+  --exclude "test_wavs/*" "*.md" ".gitattributes"
+
+# TTS — 中文语音合成 (keqing, ~125MB)
+hf download csukuangfj/vits-zh-hf-keqing \
+  --local-dir ./Models/vits-zh-hf-keqing \
+  --exclude "*.py" "*.sh" ".gitattributes"
+```
+
+下载后在 Xcode 中将 `Models/sherpa-asr-zh` 和 `Models/vits-zh-hf-keqing` 以 folder reference 方式添加到 `Copy Bundle Resources`。不下载也不影响编译和基础聊天功能，LIVE 模式会自动 fallback 到系统语音。
 
 ### 4. 打开工程
 
@@ -287,16 +319,6 @@ PhoneClaw 不会假设自己能像桌面系统那样任意操控所有 App，而
 ### 5. 外部硬件与视觉扩展
 
 探索把外部视频输入、屏幕画面理解和本地模型串起来，让 PhoneClaw 不只是"在手机里回答问题"，而是逐步具备更强的现实世界感知与调度能力。
-
-### 优先建议
-
-如果按"最容易尽快做出体验差异"的顺序：
-
-1. 文件 / 照片 / 备忘录 三类高频 API
-2. Shortcuts / App Intents 集成
-3. OCR + 语音识别
-4. 本地知识库检索
-5. 更细的自动化 Skill 编排
 
 
 ## 参考链接

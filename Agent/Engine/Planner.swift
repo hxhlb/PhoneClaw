@@ -143,29 +143,32 @@ extension AgentEngine {
     ) -> SkillSelection? {
         let clarification = selection.needsClarification?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let clarification, !clarification.isEmpty {
-            return SkillSelection(goal: selection.goal, requiredSkills: [], needsClarification: clarification)
-        }
 
+        // T2g (2026-04-17): 之前的逻辑是 clarification 非空就直接返 (skills=[]).
+        // 现在保留两边: 让 caller 决定 clarification 该不该当真. SLM 经常把 args
+        // 缺失写进 needs_clarification —— 如果同时给了 skills, 多半是误报.
         let normalizedSkills = uniqueStringsPreservingOrder(
             selection.requiredSkills.compactMap { canonicalSkillSelectionEntry($0) }
         )
-        guard !normalizedSkills.isEmpty, normalizedSkills.count <= 3 else {
-            return nil
-        }
 
         let enabledSkillSet = Set(skillEntries.filter(\.isEnabled).map(\.id))
         let candidateSet = candidateSkillIds.isEmpty ? enabledSkillSet : Set(candidateSkillIds)
-        guard normalizedSkills.allSatisfy({
+        let validSkills = normalizedSkills.filter {
             enabledSkillSet.contains($0) && (candidateSet.contains($0) || candidateSkillIds.isEmpty)
-        }) else {
+        }
+
+        // 若两个都为空 → 当无效 (LLM 没真返回任何信号)
+        if validSkills.isEmpty && (clarification ?? "").isEmpty {
             return nil
         }
 
+        // skills 数量上限 3, 超过截断而非整体失败
+        let cappedSkills = Array(validSkills.prefix(3))
+
         return SkillSelection(
             goal: selection.goal,
-            requiredSkills: normalizedSkills,
-            needsClarification: nil
+            requiredSkills: cappedSkills,
+            needsClarification: clarification
         )
     }
 
@@ -208,9 +211,13 @@ extension AgentEngine {
                 return nil
             }
 
+            // C1 (2026-04-17): content-type SKILL (例如 translate) `allowed-tools: []`,
+            // 没有 tool 可调 — 模型按 SKILL.md 指令直接生成结果. Planner step 的
+            // `tool` 字段 ignore. device-type SKILL 仍须有合法 tool.
             let allowedToolNames = Set(registeredTools(for: skillID).map(\.name))
-            guard allowedToolNames.contains(toolName) else {
-                return nil
+            let isContentSkill = allowedToolNames.isEmpty
+            if !isContentSkill {
+                guard allowedToolNames.contains(toolName) else { return nil }
             }
 
             guard step.dependsOn.allSatisfy({ previousStepIds.contains($0) }) else {
@@ -268,61 +275,94 @@ extension AgentEngine {
     ) async -> Bool {
         let matchedSkills = matchedSkillIds(for: userQuestion)
         log("[Agent] \(plannerRevision) matchedSkills=\(matchedSkills.joined(separator: ","))")
-        let candidateSkillIds =
-            matchedSkills.count >= 2
-            ? matchedSkills
-            : skillEntries.filter(\.isEnabled).map(\.id)
         let recentContextSummary = recentPlannerContextSummary()
+        // T2c (2026-04-17): 移除"matched>=2 跳过 Selection"的本地短路.
+        // Router 可能命中 2 个 SKILL 但漏第 3 个 (#02 fail), 必须让 Selection LLM
+        // 拿全 enabled skill set 决策. matched 仅作 candidates 优先 hint.
+        // 代价: 多一次短 LLM call (~1s on E4B). 收益: 矫正 Router 漏匹配.
+        // Selection LLM 总跑, 用全 enabled skill set 作为可选范围.
+        let selectionCandidateSkillIds = skillEntries.filter(\.isEnabled).map(\.id)
+        let selectionSkillsSummary = buildAvailableSkillsSummary(skillIds: selectionCandidateSkillIds)
         let selectedSkillIds: [String]
-        if matchedSkills.count >= 2, matchedSkills.count <= 3 {
-            selectedSkillIds = matchedSkills
-            log("[Agent] skill selection satisfied locally skills=\(selectedSkillIds.joined(separator: ","))")
-        } else {
-            let selectionSkillsSummary = buildAvailableSkillsSummary(skillIds: candidateSkillIds)
-            guard !selectionSkillsSummary.isEmpty else {
-                messages.append(ChatMessage(role: .assistant, content: "⚠️ 当前没有可用于编排的 Skill。"))
-                isProcessing = false
-                return true
-            }
+        guard !selectionSkillsSummary.isEmpty else {
+            messages.append(ChatMessage(role: .assistant, content: "⚠️ 当前没有可用于编排的 Skill。"))
+            isProcessing = false
+            return true
+        }
 
-            let selectionPrompt = PromptBuilder.buildSkillSelectionPrompt(
-                originalPrompt: prompt,
-                userQuestion: userQuestion,
-                availableSkillsSummary: selectionSkillsSummary,
-                recentContextSummary: recentContextSummary,
-                currentImageCount: images.count
-            )
-            log("[Agent] skill selection prompt chars=\(selectionPrompt.count), candidateSkills=\(candidateSkillIds.count)")
+        let selectionPrompt = PromptBuilder.buildSkillSelectionPrompt(
+            originalPrompt: prompt,
+            userQuestion: userQuestion,
+            availableSkillsSummary: selectionSkillsSummary,
+            recentContextSummary: recentContextSummary,
+            currentImageCount: images.count
+        )
+        log("[Agent] skill selection prompt chars=\(selectionPrompt.count), candidateSkills=\(selectionCandidateSkillIds.count)")
 
-            guard let rawSelection = await streamLLM(prompt: selectionPrompt, images: images) else {
-                messages.append(ChatMessage(role: .assistant, content: "⚠️ 无法判断需要哪些 Skill，请重试。"))
-                isProcessing = false
-                return true
-            }
+        // T2d (2026-04-17): Selection LLM 失效场景下用 Router matched 作为兜底.
+        //
+        // E2B 在 Selection prompt (6 SKILL × 中文) 下经常翻车 — 截断 JSON, 复读 prompt 里的
+        // 字面 clarification 示例 ("请说明具体需要什么帮助"), 输出 0 token 等. 这些是
+        // SLM 推理边界, 不是模型 bug. 解法: 失败时若 matched>=2 静默回 matched, 让 planning
+        // 仍能跑下去, 避免给用户错误消息. 这不是硬编规则, 是 graceful degradation.
+        //
+        // 失败模式分类:
+        //   A. streamLLM 返回 nil → 用 matched
+        //   B. parse/validate 失败 → 用 matched
+        //   C. validated 给的 clarification == prompt 字面示例 → 用 matched
+        //   D. validated.required.count < 2 (真单 skill) → 返回 false (落回单 skill agent)
+        //   E. validated.required.count >= 2 → 用 LLM 选的
+        let placeholderClarification = "请说明具体需要什么帮助"
 
-            let cleanedSelection = cleanOutput(rawSelection)
-            guard let parsedSelection = parseSkillSelection(cleanedSelection),
-                  let validatedSelection = validateSkillSelection(parsedSelection, candidateSkillIds: candidateSkillIds) else {
-                messages.append(ChatMessage(role: .assistant, content: "⚠️ 当前无法判断需要哪些 Skill，请把需求说得更具体一些。"))
-                isProcessing = false
-                return true
-            }
+        let rawSelection = await streamLLM(prompt: selectionPrompt, images: images)
+        let cleanedSelection = rawSelection.map { cleanOutput($0) } ?? ""
 
-            if let clarification = validatedSelection.needsClarification,
-               !clarification.isEmpty {
-                messages.append(ChatMessage(role: .assistant, content: clarification))
-                isProcessing = false
-                return true
-            }
+        let parsedSelection = parseSkillSelection(cleanedSelection)
+        let validatedSelection = parsedSelection.flatMap {
+            validateSkillSelection($0, candidateSkillIds: selectionCandidateSkillIds)
+        }
 
-            guard validatedSelection.requiredSkills.count >= 2 else {
-                messages.append(ChatMessage(role: .assistant, content: "⚠️ 当前只识别到单一 Skill，请把组合操作说得更明确一些。"))
-                isProcessing = false
-                return true
-            }
+        // C: clarification 是 prompt 字面示例, 视为 LLM 没真理解
+        let clarificationLooksFake: Bool = {
+            guard let clar = validatedSelection?.needsClarification?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !clar.isEmpty else { return false }
+            return clar == placeholderClarification
+        }()
 
-            selectedSkillIds = validatedSelection.requiredSkills
+        // 真 clarification (非 prompt 字面) → 让用户看到.
+        // 但只有当 required_skills 为空时才认为是真 clarification —— 如果 LLM 同时
+        // 给了 skills 又给了 clarification, clarification 多半是它把"args 缺失"
+        // 误当成"selection 缺信息"了 (Selection 阶段不该问 args). 直接忽略 clar,
+        // 用 skills 进入 plan.
+        let hasSkills = (validatedSelection?.requiredSkills.isEmpty == false)
+        if let clar = validatedSelection?.needsClarification,
+           !clar.isEmpty,
+           !clarificationLooksFake,
+           !hasSkills {
+            messages.append(ChatMessage(role: .assistant, content: clar))
+            isProcessing = false
+            return true
+        }
+
+        // D: 真单 skill → 落回 agent 单 skill 路径
+        if let req = validatedSelection?.requiredSkills, req.count == 1 {
+            log("[Agent] selection returned single skill, fall back to agent path")
+            return false
+        }
+
+        // E: 多 skill → 用 Selection 结果
+        if let req = validatedSelection?.requiredSkills, req.count >= 2 {
+            selectedSkillIds = req
             log("[Agent] skill selection accepted skills=\(selectedSkillIds.joined(separator: ","))")
+        } else if matchedSkills.count >= 2 {
+            // A/B/C: Selection 失效, Router 匹配到 >=2 → 兜底
+            selectedSkillIds = matchedSkills
+            log("[Agent] selection failed/empty, falling back to Router matched skills=\(selectedSkillIds.joined(separator: ","))")
+        } else {
+            // Selection 失效 + Router 也只有 0/1 → 落回 agent 单 skill 路径 (matched=1)
+            // 或写错误消息 (matched=0, 不可能进 planner 因为 gate>=1)
+            log("[Agent] selection failed and Router matched<2, fall back to agent path")
+            return false
         }
 
         var loadedInstructions: [String: String] = [:]
@@ -422,8 +462,52 @@ extension AgentEngine {
                 }
 
                 let displayName = loadedDisplayNames[step.skill] ?? findDisplayName(for: step.skill)
-                guard let cardIndex = skillCardIndices[step.skill],
-                      let tool = toolRegistry.find(name: step.tool) else {
+                guard let cardIndex = skillCardIndices[step.skill] else {
+                    finishPlanning(with: "⚠️ 当前规划步骤无效，已停止执行。")
+                    return true
+                }
+
+                // C1 (2026-04-17): content-type SKILL 没有 tool — 模型按 SKILL.md 指令直接
+                // 生成文本结果. 这一步绕开 tool 提取/调用, 走 buildContentStepPrompt 直接 LLM.
+                let skillDef = skillRegistry.getDefinition(step.skill)
+                let isContentStep = skillDef?.metadata.allowedTools.isEmpty == true
+                if isContentStep {
+                    let completedSummary = completedPlanSummary(completedSteps)
+                    let contentPrompt = PromptBuilder.buildContentStepPrompt(
+                        originalPrompt: prompt,
+                        userQuestion: userQuestion,
+                        skillInstructions: loadedInstructions[step.skill] ?? "",
+                        stepIntent: step.intent,
+                        completedStepSummary: completedSummary,
+                        currentImageCount: images.count
+                    )
+
+                    messages[cardIndex].update(role: .system, content: "executing:\(step.skill)", skillName: displayName)
+
+                    guard let rawOutput = await streamLLM(prompt: contentPrompt, images: images) else {
+                        messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
+                        finishPlanning(with: "⚠️ \(displayName) 步骤无回复，请重试。")
+                        return true
+                    }
+
+                    let cleanedOutput = cleanOutput(rawOutput)
+                    let summary = cleanedOutput.isEmpty ? "(无输出)" : cleanedOutput
+
+                    messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
+                    messages.append(ChatMessage(role: .skillResult, content: summary, skillName: step.skill))
+
+                    completedSteps.append(
+                        ExecutedPlanStep(
+                            step: step,
+                            toolResult: summary,
+                            toolResultSummary: summary
+                        )
+                    )
+                    toolResultsForAnswer.append((toolName: step.skill, result: summary))
+                    continue
+                }
+
+                guard let tool = toolRegistry.find(name: step.tool) else {
                     finishPlanning(with: "⚠️ 当前规划步骤无效，已停止执行。")
                     return true
                 }
