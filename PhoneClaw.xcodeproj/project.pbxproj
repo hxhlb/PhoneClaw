@@ -649,7 +649,7 @@
 				AA4000000000000000000003 /* XCRemoteSwiftPackageReference "swift-tokenizers" */,
 				AA4000000000000000000004 /* XCLocalSwiftPackageReference "Packages/FluidAudio" */,
 				AA4000000000000000000005 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
-				AA4000000000000000000006 /* XCRemoteSwiftPackageReference "PhoneClawEngine" */,
+				AA4000000000000000000006 /* XCLocalSwiftPackageReference "LocalPackages/PhoneClawEngine" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AC5E0AA2711EA01E891DE3A7 /* Products */;
@@ -1109,6 +1109,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/FluidAudio;
 		};
+		AA4000000000000000000006 /* XCLocalSwiftPackageReference "LocalPackages/PhoneClawEngine" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = LocalPackages/PhoneClawEngine;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1134,14 +1138,6 @@
 			requirement = {
 				kind = upToNextMinorVersion;
 				minimumVersion = 2.4.1;
-			};
-		};
-		AA4000000000000000000006 /* XCRemoteSwiftPackageReference "PhoneClawEngine" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kellyvv/PhoneClawEngine";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.2;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1194,7 +1190,7 @@
 		};
 		AA5000000000000000000010 /* PhoneClawEngine */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AA4000000000000000000006 /* XCRemoteSwiftPackageReference "PhoneClawEngine" */;
+			package = AA4000000000000000000006 /* XCLocalSwiftPackageReference "LocalPackages/PhoneClawEngine" */;
 			productName = PhoneClawEngine;
 		};
 /* End XCSwiftPackageProductDependency section */
