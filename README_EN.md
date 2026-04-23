@@ -27,6 +27,14 @@ A local AI Agent for iPhone. Offline. Private. Native.
 
 PhoneClaw is a local AI Agent that runs entirely on your iPhone. No internet connection. No data uploads. No cloud dependency.
 
+## 2026-04-23 Update
+
+- Released v1.2.1 — added the ability to choose between GPU or CPU inference backend directly from the settings page. [Download](https://github.com/kellyvv/PhoneClaw/releases/tag/v1.2.1)
+
+## 2026-04-20 Update
+
+- Released an unsigned IPA — sign and install to iPhone via [Sideloadly](https://sideloadly.io/), no Xcode or Mac development environment required. [Download](https://github.com/kellyvv/PhoneClaw/releases/tag/v1.1.0)
+
 ## 2026-04-18 Update
 
 - Added in-app download for LIVE mode voice models — download directly from the settings page and start using LIVE mode
