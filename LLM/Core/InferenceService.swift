@@ -139,6 +139,16 @@ public protocol InferenceService: AnyObject {
     /// 重置 KV session (关掉 + 重开)。无 KV 能力的后端为 no-op。
     func resetKVSession() async
 
+    /// 如果后端当前 engine 带了懒加载的多模态 (vision/audio) encoder,
+    /// 释放掉回到纯文本状态。只 LiteRT 有意义, 其他后端 no-op。
+    /// 典型调用点: 用户新建会话 / 切换会话 — 释放 ~800 MB pinned memory,
+    /// 下次需要多模态时再 lazy reload 回来。
+    func revertToTextOnly() async
+
+    /// 通知后端切换推理 backend (`"gpu"` / `"cpu"`). 只 LiteRT 实际使用这个值;
+    /// MLX 等后端 no-op。**不会**自动 reload engine, 调用方需要随后 unload + load。
+    func setPreferredBackend(_ backend: String)
+
     /// Prompt/session group 切换前的后端准备钩子。
     /// 用于像 LiteRT 这类“同一时刻只能有一种 session 形态”的后端在
     /// text <-> multimodal 切换时做显式收敛。
@@ -155,6 +165,8 @@ public extension InferenceService {
     var kvSessionActive: Bool { false }
     var sessionHasContext: Bool { false }
     func resetKVSession() async { /* no-op */ }
+    func revertToTextOnly() async { /* no-op */ }
+    func setPreferredBackend(_ backend: String) { /* no-op */ }
     func prepareForSessionGroupTransition(
         from previousGroup: SessionGroup?,
         to nextGroup: SessionGroup

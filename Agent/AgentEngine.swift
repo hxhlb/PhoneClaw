@@ -21,14 +21,21 @@ func log(_ message: String) {
 class ModelConfig {
     static let selectedModelDefaultsKey = "PhoneClaw.selectedModelID"
     static let enableThinkingDefaultsKey = "PhoneClaw.enableThinking"
+    static let preferredBackendDefaultsKey = "PhoneClaw.preferredBackend"
 
-    var maxTokens = 8192
+    // 采样参数不再暴露给用户调节 — 跟 KV cache = 2048 的现实对齐:
+    //   maxTokens 1500 留 ~500 给输入; topK/topP/temperature 用 Gemma 4 推荐默认。
+    var maxTokens = 1500
     var topK = 64
     var topP = 0.95
     var temperature = 1.0
     var enableThinking = UserDefaults.standard.bool(forKey: enableThinkingDefaultsKey)
     var selectedModelID = UserDefaults.standard.string(forKey: selectedModelDefaultsKey)
         ?? ModelDescriptor.defaultModel.id
+    /// 推理后端偏好: `"gpu"` (Metal, 默认) 或 `"cpu"`. 只 LiteRT 后端有意义;
+    /// MLX / 其他后端忽略。切换后会 reload 引擎 (~3-7s), 具体 UX 见 ConfigurationsView。
+    var preferredBackend: String = UserDefaults.standard.string(forKey: preferredBackendDefaultsKey)
+        ?? "gpu"
     /// System prompt — 由 AgentEngine.loadSystemPrompt() 从 SYSPROMPT.md 注入，不在代码里硬编码。
     var systemPrompt = ""
 }
@@ -581,6 +588,8 @@ class AgentEngine {
         loadSystemPrompt()       // 从 SYSPROMPT.md 注入 system prompt
         loadPersistedSessions()
         applySamplingConfig()
+        // 同步用户选的推理 backend 偏好到 inference service, 首次 load 生效.
+        inference.setPreferredBackend(config.preferredBackend)
         Task {
             try? await inference.load(modelID: config.selectedModelID)
         }
@@ -652,6 +661,7 @@ class AgentEngine {
 
     func reloadModel() {
         let selectedModelID = config.selectedModelID
+        let backend = config.preferredBackend
         // 持久化用户选择 — 单一入口, 任何 caller (ConfigurationsView.applySettings,
         // 未来其它切模型路径) 调 reloadModel 后, UserDefaults 自动同步,
         // 下次 app 启动 ModelConfig.selectedModelID 能恢复正确值.
@@ -659,11 +669,17 @@ class AgentEngine {
             selectedModelID,
             forKey: ModelConfig.selectedModelDefaultsKey
         )
+        UserDefaults.standard.set(
+            backend,
+            forKey: ModelConfig.preferredBackendDefaultsKey
+        )
         Task { [weak self] in
             guard let self else { return }
             self.isProcessing = false
             _ = self.catalog.select(modelID: selectedModelID)
             self.inference.unload()
+            // 在 load 前同步 backend 偏好, 这样 LiteRTBackend.load 会用新 backend 构造 engine.
+            self.inference.setPreferredBackend(backend)
             try? await self.inference.load(modelID: selectedModelID)
         }
     }
@@ -1841,8 +1857,14 @@ class AgentEngine {
         currentSessionID = UUID()
         UserDefaults.standard.set(currentSessionID.uuidString, forKey: Self.currentSessionDefaultsKey)
         messages = []
-        // Reset KV cache for new conversation
-        Task { [inference] in await inference.resetKVSession() }
+        // Reset KV cache for new conversation.
+        // 若 engine 带了多模态 encoder (上一个会话发过图/音频导致 sticky
+        // 到 multimodal), 新对话默认回到 text-only — 释放 ~800 MB.
+        // 下次发图再走 lazy reload 回来.
+        Task { [inference] in
+            await inference.revertToTextOnly()
+            await inference.resetKVSession()
+        }
     }
 
     func loadSession(id: UUID) {
@@ -1857,8 +1879,13 @@ class AgentEngine {
         currentSessionID = id
         UserDefaults.standard.set(currentSessionID.uuidString, forKey: Self.currentSessionDefaultsKey)
         messages = record.messages
-        // Reset KV cache — loaded session has no cached context
-        Task { [inference] in await inference.resetKVSession() }
+        // Reset KV cache — loaded session has no cached context.
+        // 切到其他会话时也顺便回 text-only — 被切出来的会话之前可能 sticky
+        // 在 multimodal, 现在进的会话有没有图待定, 先释放 800 MB, 进来若发图再升级.
+        Task { [inference] in
+            await inference.revertToTextOnly()
+            await inference.resetKVSession()
+        }
         updateSessionSummary(
             .init(
                 id: record.id,
@@ -1938,6 +1965,12 @@ class AgentEngine {
         // 截断：移除该用户消息及之后所有消息
         messages.removeSubrange(lastUserIndex...)
         resetPromptPipelineState()
+        // 重试时: 如果要 replay 的消息没有图 (纯文本重试), 先释放多模态 encoder
+        // 回 text-only. 有图则保持当前 engine 状态 — 反正下面 processInput 会通过
+        // generateMultimodal 走 ensureEngineMode(.multimodal) 升级.
+        if imageAttachments.isEmpty {
+            await inference.revertToTextOnly()
+        }
         await inference.resetKVSession()
         // 重新走 processInput，复用已持久化的 ChatImageAttachment，避免二次 JPEG 编码
         await processInput(text, replayImageAttachments: imageAttachments)

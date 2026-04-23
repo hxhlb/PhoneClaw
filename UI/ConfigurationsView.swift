@@ -14,10 +14,7 @@ struct ConfigurationsView: View {
 
     // 本地编辑状态（确认后才应用）
     @State private var selectedModelID = ModelDescriptor.defaultModel.id
-    @State private var maxTokens: Double = 4000
-    @State private var topK: Double = 64
-    @State private var topP: Double = 0.95
-    @State private var temperature: Double = 1.0
+    @State private var preferredBackend: String = "gpu"   // "gpu" / "cpu"
     @State private var systemPrompt: String = ""
     @State private var permissionStatuses: [AppPermissionKind: AppPermissionStatus] = [:]
     @State private var requestingPermission: AppPermissionKind?
@@ -123,31 +120,8 @@ struct ConfigurationsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 modelSection
+                backendSection
                 liveModelSection
-                configSlider(
-                    title: localized("最大 Token 数", "Max Tokens"),
-                    value: $maxTokens,
-                    range: 128...8192,
-                    displayValue: "\(Int(maxTokens))"
-                )
-                configSlider(
-                    title: localized("采样 TopK", "TopK"),
-                    value: $topK,
-                    range: 1...128,
-                    displayValue: "\(Int(topK))"
-                )
-                configSlider(
-                    title: localized("采样 TopP", "TopP"),
-                    value: $topP,
-                    range: 0...1,
-                    displayValue: String(format: "%.2f", topP)
-                )
-                configSlider(
-                    title: localized("温度", "Temperature"),
-                    value: $temperature,
-                    range: 0...2,
-                    displayValue: String(format: "%.2f", temperature)
-                )
             }
             .padding()
         }
@@ -295,6 +269,66 @@ struct ConfigurationsView: View {
         }
         .padding(14)
         .background(Theme.bgElevated, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Theme.border, lineWidth: 1)
+        )
+    }
+
+    // MARK: - 推理 Backend (GPU / CPU)
+
+    /// 按 model + backend 实测/估算的 decode tok/s.
+    /// - E2B: iPhone 17 Pro Max 实测
+    /// - E4B: GPU 实测, CPU 按 E2B 比例推算
+    private var estimatedSpeedText: String {
+        let isE4B = selectedModelID.contains("e4b")
+        let fastLabel = localized("较快", "fast")
+        let slowLabel = localized("较慢", "slower")
+        switch (preferredBackend, isE4B) {
+        case ("gpu", false): return localized("E2B · 推理速度 ~25 tok/s (\(fastLabel))",
+                                               "E2B · Inference ~25 tok/s (\(fastLabel))")
+        case ("gpu", true):  return localized("E4B · 推理速度 ~20 tok/s (\(fastLabel))",
+                                               "E4B · Inference ~20 tok/s (\(fastLabel))")
+        case ("cpu", false): return localized("E2B · 推理速度 ~8 tok/s (\(slowLabel))",
+                                               "E2B · Inference ~8 tok/s (\(slowLabel))")
+        case ("cpu", true):  return localized("E4B · 推理速度 ~4 tok/s (\(slowLabel))",
+                                               "E4B · Inference ~4 tok/s (\(slowLabel))")
+        default:             return ""
+        }
+    }
+
+    private var backendSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(localized("推理后端", "Inference Backend"))
+                .font(.headline)
+                .foregroundStyle(Theme.textPrimary)
+
+            Picker(localized("推理后端", "Inference Backend"), selection: $preferredBackend) {
+                Text("GPU (Metal)").tag("gpu")
+                Text("CPU").tag("cpu")
+            }
+            .pickerStyle(.segmented)
+
+            // 当前 model + backend 组合下的速度 (随 model/backend 选择动态变化)
+            Text(estimatedSpeedText)
+                .font(.caption)
+                .foregroundStyle(Theme.textTertiary)
+
+            // 始终可见的内存提醒
+            Label(
+                localized(
+                    "低内存手机建议选 CPU — GPU 占内存较高。",
+                    "Low-memory devices: prefer CPU — GPU uses significantly more memory."
+                ),
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(Theme.textSecondary)
+            .labelStyle(.titleAndIcon)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(Theme.border, lineWidth: 1)
@@ -544,32 +578,6 @@ struct ConfigurationsView: View {
         .padding(.vertical, 4)
     }
 
-    private func configSlider(
-        title: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        displayValue: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(Theme.textSecondary)
-
-            HStack(spacing: 12) {
-                Slider(value: value, in: range)
-                    .tint(Theme.accent)
-
-                Text(displayValue)
-                    .font(.body.monospaced())
-                    .foregroundStyle(Theme.textPrimary.opacity(0.8))
-                    .frame(width: 56)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Theme.bg, in: RoundedRectangle(cornerRadius: 6))
-            }
-        }
-    }
-
     @ViewBuilder
     private func modelStateControl(for model: ModelDescriptor, state: ModelInstallState) -> some View {
         switch state {
@@ -807,24 +815,19 @@ struct ConfigurationsView: View {
         engine.installer.refreshInstallStates()
         liveDownloader.refreshState()
         selectedModelID = engine.catalog.loadedModel?.id ?? engine.config.selectedModelID
-        maxTokens = Double(engine.config.maxTokens)
-        topK = Double(engine.config.topK)
-        topP = engine.config.topP
-        temperature = engine.config.temperature
+        preferredBackend = engine.config.preferredBackend
         systemPrompt = engine.config.systemPrompt
         refreshPermissionStatuses()
     }
 
     private func applySettings() -> Bool {
         let modelChanged = engine.config.selectedModelID != selectedModelID
+        let backendChanged = engine.config.preferredBackend != preferredBackend
 
-        engine.config.maxTokens = Int(maxTokens)
-        engine.config.topK = Int(topK)
-        engine.config.topP = topP
-        engine.config.temperature = temperature
         engine.config.systemPrompt = systemPrompt
+        engine.config.preferredBackend = preferredBackend
 
-        // 同步采样参数到 LLM（下次生成立即生效）
+        // 同步采样参数到 LLM (沿用 ModelConfig 默认值; 下次生成立即生效)
         engine.applySamplingConfig()
 
         guard let selectedModel = engine.availableModels.first(where: { $0.id == selectedModelID }),
@@ -839,7 +842,8 @@ struct ConfigurationsView: View {
 
         engine.config.selectedModelID = selectedModelID
         let needsLoad = !engine.inference.isLoaded || engine.catalog.loadedModel?.id != selectedModelID
-        if modelChanged || needsLoad {
+        // backend 变更也要 reload — LiteRTLMEngine 在 load 时构造, backend 参数不可热切换。
+        if modelChanged || backendChanged || needsLoad {
             engine.reloadModel()
         }
         return true

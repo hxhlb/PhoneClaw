@@ -58,6 +58,11 @@ final class LiteRTBackend: InferenceService {
     /// 当前 engine 的加载模式. 默认 textOnly.
     private(set) var currentEngineMode: EngineMode = .textOnly
 
+    /// 用户选择的推理 backend (`"gpu"` / `"cpu"`), 默认 gpu.
+    /// 通过 `setPreferredBackend(_:)` 更新 (ConfigurationsView 挂 UI).
+    /// load() 时读取这个值构造 LiteRTLMEngine.
+    private(set) var preferredBackend: String = "gpu"
+
     // MARK: - Internal
 
     private var engine: LiteRTLMEngine?
@@ -100,7 +105,21 @@ final class LiteRTBackend: InferenceService {
         self.modelPathResolver = modelPathResolver
         self.onModelLoaded = onModelLoaded
         self.onModelUnloaded = onModelUnloaded
-        self.stats.backend = "litert-gpu"
+        self.stats.backend = "litert-\(preferredBackend)"
+    }
+
+    /// 更新用户的推理 backend 偏好 ("gpu" / "cpu").
+    /// **不会**立即 reload engine — 调用方在切换后需要显式 unload + load 来生效
+    /// (通常通过 `AgentEngine.reloadModel()`).
+    func setPreferredBackend(_ backend: String) {
+        guard backend == "gpu" || backend == "cpu" else {
+            print("[LiteRT] Ignoring invalid backend preference: \(backend)")
+            return
+        }
+        guard self.preferredBackend != backend else { return }
+        self.preferredBackend = backend
+        self.stats.backend = "litert-\(backend)"
+        print("[LiteRT] Preferred backend set to \(backend) (takes effect on next load)")
     }
 
     /// 便捷 init: 使用默认路径 (Documents/models/<fileName>)
@@ -170,12 +189,18 @@ final class LiteRTBackend: InferenceService {
                 }
             }()
 
+            // enableBenchmark=false: 关掉 runtime benchmark 模式 (省少量 MB +
+            // 安静 log). 副作用: `engine.lastSessionBenchmarkSnapshot` 会是 nil,
+            // 所以下面 `lastKVPrefillTokens` 从 benchmark 取不到时会退到 0,
+            // 不影响 KV cache 本身的复用逻辑 (只是 [Engine] prefill=... log
+            // 在控制台里不再出现).
             let newEngine = LiteRTLMEngine(
                 modelPath: modelPath,
-                backend: "gpu",
+                backend: preferredBackend,    // "gpu" 或 "cpu", 从 ConfigurationsView 选择驱动
                 visionBackend: visionBackend,
                 audioBackend: audioBackend,
-                maxTokens: 2048
+                maxTokens: 2048,
+                enableBenchmark: false
             )
             try await newEngine.load()
 
@@ -202,7 +227,7 @@ final class LiteRTBackend: InferenceService {
 
             let descriptor = ModelDescriptor.allModels.first { $0.id == modelID }
             statusMessage = "已加载 \(descriptor?.displayName ?? modelID)"
-            PCLog.modelLoaded(modelID: modelID, loadMs: elapsed)
+            PCLog.modelLoaded(modelID: modelID, backend: "litert-\(preferredBackend)", loadMs: elapsed)
             onModelLoaded?(modelID)
         } catch {
             isLoading = false
