@@ -32,10 +32,12 @@ class ModelConfig {
     var enableThinking = UserDefaults.standard.bool(forKey: enableThinkingDefaultsKey)
     var selectedModelID = UserDefaults.standard.string(forKey: selectedModelDefaultsKey)
         ?? ModelDescriptor.defaultModel.id
-    /// 推理后端偏好: `"gpu"` (Metal, 默认) 或 `"cpu"`. 只 LiteRT 后端有意义;
+    /// 推理后端偏好: `"gpu"` (Metal) 或 `"cpu"` (默认). 只 LiteRT 后端有意义;
     /// MLX / 其他后端忽略。切换后会 reload 引擎 (~3-7s), 具体 UX 见 ConfigurationsView。
+    /// 默认 CPU: Sideloadly 免费签名的 App 内存上限较低, GPU + E4B 的 Metal buffer
+    /// 会 OOM; CPU 更稳妥, 用户可按需切到 GPU。
     var preferredBackend: String = UserDefaults.standard.string(forKey: preferredBackendDefaultsKey)
-        ?? "gpu"
+        ?? "cpu"
     /// System prompt — 由 AgentEngine.loadSystemPrompt() 从 SYSPROMPT.md 注入，不在代码里硬编码。
     var systemPrompt = ""
 }

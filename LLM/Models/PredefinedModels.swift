@@ -74,13 +74,14 @@ public extension ModelDescriptor {
             supportsThinking: true,
             supportsPersistentSession: true,
             supportsSessionSnapshot: false,
-            // LiteRT GPU KV-cache = 4096 (vs 32K 省 ~4 GB Metal buffer).
-            // 输入预算 2800 + 生成预算 1000 = 3800, 留 296 token margin.
-            // 2026-04-23: 从 1200/700 (对应 2048 KV) 提到 2800/1000 (对应 4096 KV).
-            // E4B 相比 E2B 留更多生成预算 (结构化规划会生成更长 tool_call JSON chain),
-            // 相应 input 预算小 200 token 保持总量一致.
-            safeContextBudgetTokens: 2800,
-            defaultReservedOutputTokens: 1000
+            // LiteRT KV-cache = 2048 (E4B 专用, E2B 用 4096). 原因:
+            // E4B 权重 ~3.4 GB + 4096 KV (~1 GB) 在 Sideloadly 免费签名
+            // app 的 jetsam 阈值 (~3-4 GB) 下会 runtime invoke 失败
+            // ("Failed to invoke the compiled model"). 2048 KV 把 KV 占
+            // 降到 ~0.5 GB, 总内存 ~3.9 GB 刚好能装下。
+            // 输入预算 1300 + 生成预算 600 = 1900, 留 148 token margin.
+            safeContextBudgetTokens: 1300,
+            defaultReservedOutputTokens: 600
         ),
         runtimeProfile: MLXModelProfiles.gemma4_e4b
     )

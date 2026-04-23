@@ -58,10 +58,11 @@ final class LiteRTBackend: InferenceService {
     /// 当前 engine 的加载模式. 默认 textOnly.
     private(set) var currentEngineMode: EngineMode = .textOnly
 
-    /// 用户选择的推理 backend (`"gpu"` / `"cpu"`), 默认 gpu.
+    /// 用户选择的推理 backend (`"gpu"` / `"cpu"`), 默认 cpu.
     /// 通过 `setPreferredBackend(_:)` 更新 (ConfigurationsView 挂 UI).
     /// load() 时读取这个值构造 LiteRTLMEngine.
-    private(set) var preferredBackend: String = "gpu"
+    /// 默认 CPU: Sideloadly 免费签名 App 内存上限较低, GPU + E4B 会 OOM.
+    private(set) var preferredBackend: String = "cpu"
 
     // MARK: - Internal
 
@@ -178,12 +179,16 @@ final class LiteRTBackend: InferenceService {
             //                (匹配 Gallery Android 的 EngineConfig,
             //                 Gemma 3n / Gemma 4 audio 都只能 CPU, vision 走 GPU)
             //
-            // maxTokens=4096: Gemma 4 支持 32K context, 但 iPhone 上 KV cache
-            // 4096 足够 (vs 32K 省 ~4 GB Metal buffer, vs 2048 多 ~500 MB 但换来
-            // skill-inlined first-turn 不炸预算). Gemma 3n 会失败 — 仅 Gemma 4.
-            // 2026-04-23: 从 2048 提到 4096 — 首轮调用 Calendar / Contacts 等
-            // Skills 时 SKILL.md (~2-3 KB, 1000-1500 token) 会 inline 进 prompt,
-            // 2048 的预算挡住了所有技能触发型对话 (hard-reject "上下文过长").
+            // maxTokens 按模型分: E2B 用 4096 (权重 2.4 GB, 有内存余量装
+            // 更大 KV cache), E4B 用 2048 (权重 3.4 GB, 再加 4096 KV 在
+            // Sideloadly 免费签名 app 的 jetsam 阈值下会炸 — 首次 invoke
+            // TFLite 分配 tensor 时报 "Failed to invoke the compiled model").
+            // E2B 4096 让 skill-inlined 对话有足够输入 budget; E4B 2048 沿用
+            // v1.1.0 的保守预算, 代价是多 skill 首轮会紧。
+            let maxKVTokens: Int = {
+                if modelID == "gemma-4-e4b-it-litert" { return 2048 }
+                return 4096
+            }()
             let (visionBackend, audioBackend): (String?, String?) = {
                 switch mode {
                 case .textOnly:
@@ -211,7 +216,7 @@ final class LiteRTBackend: InferenceService {
                 backend: preferredBackend,    // "gpu" 或 "cpu", 从 ConfigurationsView 选择驱动
                 visionBackend: visionBackend,
                 audioBackend: audioBackend,
-                maxTokens: 4096,
+                maxTokens: maxKVTokens,
                 enableBenchmark: false
             )
             try await newEngine.load()
