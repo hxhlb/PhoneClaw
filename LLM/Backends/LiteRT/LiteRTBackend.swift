@@ -62,6 +62,9 @@ final class LiteRTBackend: InferenceService {
     /// 通过 `setPreferredBackend(_:)` 更新 (ConfigurationsView 挂 UI).
     /// load() 时读取这个值构造 LiteRTLMEngine.
     private(set) var preferredBackend: String = "gpu"
+    /// 是否启用 MTP speculative decoding. 只对 CPU 后端有效, GPU 路径永远关闭.
+    /// AgentEngine 在 setup / reloadModel 时通过 setEnableSpeculativeDecoding(_:) 同步.
+    private(set) var enableSpeculativeDecoding: Bool = true
 
     // MARK: - Internal
 
@@ -120,6 +123,12 @@ final class LiteRTBackend: InferenceService {
         self.preferredBackend = backend
         self.stats.backend = "litert-\(backend)"
         print("[LiteRT] Preferred backend set to \(backend) (takes effect on next load)")
+    }
+
+    func setEnableSpeculativeDecoding(_ enabled: Bool) {
+        guard self.enableSpeculativeDecoding != enabled else { return }
+        self.enableSpeculativeDecoding = enabled
+        print("[LiteRT] Speculative decoding \(enabled ? "enabled" : "disabled") (takes effect on next load; only applies to CPU backend)")
     }
 
     /// 便捷 init: 使用默认路径 (Documents/models/<fileName>)
@@ -197,10 +206,13 @@ final class LiteRTBackend: InferenceService {
             //
             // enableSpeculativeDecoding: **只在 CPU 后端开**. Gemma 4 的 MTP drafter
             // 在 .litertlm 里带 `section_backend_constraint: cpu`, GPU 路径用不上.
-            // CPU 开启后 drafter (~300-400 MB) 进 RAM, 每步 decode 走 draft+verify,
+            // CPU 开启后 drafter (~60 MB 实测) 进 RAM, 每步 decode 走 draft+verify,
             // 官方基准 1.5-2x 吞吐提升. iPhone 17 Pro Max CPU 路径 headroom 充裕
             // (>4 GB), 完全扛得住这个内存增加.
-            let useSpeculativeDecoding = (preferredBackend == "cpu")
+            //
+            // 用户偏好 (enableSpeculativeDecoding) 控制是否启用. 即使开关是 true,
+            // GPU 后端仍然强制 false, 因为 drafter 没有 Metal kernel.
+            let useSpeculativeDecoding = (preferredBackend == "cpu") && self.enableSpeculativeDecoding
             let newEngine = LiteRTLMEngine(
                 modelPath: modelPath,
                 backend: preferredBackend,    // "gpu" 或 "cpu", 从 ConfigurationsView 选择驱动
