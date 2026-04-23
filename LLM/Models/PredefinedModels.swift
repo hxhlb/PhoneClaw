@@ -33,8 +33,13 @@ public extension ModelDescriptor {
             supportsThinking: true,
             supportsPersistentSession: true,
             supportsSessionSnapshot: false,
-            safeContextBudgetTokens: 3500,
-            defaultReservedOutputTokens: 1024
+            // LiteRT GPU KV-cache 降到 2048 (省 ~500 MB pinned Metal buffer).
+            // input + output 必须 ≤ 2048. 输入预算 1300 + 生成预算 700 = 2000,
+            // 留 48 token margin 给 BOS/EOS/系统控制 token.
+            // 输出预算从 500 提到 700 — 图片描述 / 详细回答需要更长输出空间
+            // (旧值 500 会在 "3. **环境/背景" 这种位置硬截断).
+            safeContextBudgetTokens: 1300,
+            defaultReservedOutputTokens: 700
         ),
         runtimeProfile: MLXModelProfiles.gemma4_e2b
     )
@@ -65,8 +70,12 @@ public extension ModelDescriptor {
             supportsThinking: true,
             supportsPersistentSession: true,
             supportsSessionSnapshot: false,
-            safeContextBudgetTokens: 2900,
-            defaultReservedOutputTokens: 896
+            // LiteRT GPU KV-cache 降到 2048 (省 ~500 MB pinned Metal buffer).
+            // 输入预算 1200 + 生成预算 700 = 1900, 留 148 token margin.
+            // E4B 结构化规划会生成更长 tool_call JSON + 图片描述需要更长输出,
+            // 输出预算从 500 提到 700 (旧值 500 会截断长回答).
+            safeContextBudgetTokens: 1200,
+            defaultReservedOutputTokens: 700
         ),
         runtimeProfile: MLXModelProfiles.gemma4_e4b
     )

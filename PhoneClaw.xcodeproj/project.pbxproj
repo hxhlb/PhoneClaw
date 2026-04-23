@@ -1141,7 +1141,7 @@
 			repositoryURL = "https://github.com/kellyvv/PhoneClawEngine";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.1.0;
+				minimumVersion = 0.1.2;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

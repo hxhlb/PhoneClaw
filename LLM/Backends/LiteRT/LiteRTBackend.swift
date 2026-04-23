@@ -36,6 +36,28 @@ final class LiteRTBackend: InferenceService {
     var samplingTemperature: Float = 1.0
     var maxOutputTokens: Int = 8192
 
+    // MARK: - Engine Mode (Lazy Multimodal Loading)
+
+    /// 控制底层 LiteRTLMEngine 加载哪些 encoder.
+    ///
+    /// - `textOnly`: `visionBackend: nil, audioBackend: nil`.
+    ///   SigLIP 视觉 encoder + USM 音频 encoder + 各自的 XNNPack cache
+    ///   **都不进内存**. 省 ~800 MB pinned memory, 纯 chat 场景的默认.
+    ///
+    /// - `multimodal`: `visionBackend: "gpu", audioBackend: "cpu"`.
+    ///   vision / audio encoder 常驻内存, 能直接跑 `generateMultimodal` / Live.
+    ///
+    /// 切换模式需要完整 unload + reload 引擎, 成本 ~6-7s (跟首次 load 一样).
+    /// 当前策略是 **sticky**: 首次多模态请求自动升级到 `multimodal`, 之后保持,
+    /// 直到外部显式调用 `revertToTextOnly()` 或切模型.
+    enum EngineMode: Equatable {
+        case textOnly
+        case multimodal
+    }
+
+    /// 当前 engine 的加载模式. 默认 textOnly.
+    private(set) var currentEngineMode: EngineMode = .textOnly
+
     // MARK: - Internal
 
     private var engine: LiteRTLMEngine?
@@ -101,12 +123,20 @@ final class LiteRTBackend: InferenceService {
     // MARK: - InferenceService: Lifecycle
 
     func load(modelID: String) async throws {
+        try await load(modelID: modelID, mode: .textOnly)
+    }
+
+    /// 加载指定模型, 可选择 engine mode (textOnly / multimodal).
+    /// - 如果同一模型 + 同一 mode 已加载: no-op.
+    /// - 如果同一模型但 mode 不同: unload + reload (~6-7s).
+    /// - 如果不同模型: unload + reload.
+    func load(modelID: String, mode: EngineMode) async throws {
         guard !isLoading else { return }
 
-        // 已加载同一模型 — no-op
-        if isLoaded, loadedModelID == modelID { return }
+        // 已加载同一模型 **且** 同一 mode — no-op
+        if isLoaded, loadedModelID == modelID, currentEngineMode == mode { return }
 
-        // 如果加载了不同模型，先卸载
+        // 如果已加载 (不同模型 或 不同 mode), 先 unload
         if isLoaded { unload() }
 
         guard let modelPath = modelPathResolver(modelID) else {
@@ -117,17 +147,41 @@ final class LiteRTBackend: InferenceService {
         }
 
         isLoading = true
-        statusMessage = "正在加载模型..."
+        statusMessage = mode == .multimodal ? "正在加载多模态模型..." : "正在加载模型..."
         cancelled = false
 
         let loadStart = CFAbsoluteTimeGetCurrent()
 
         do {
-            let newEngine = LiteRTLMEngine(modelPath: modelPath, backend: "gpu")
+            // Backend 配置按 mode 决定:
+            //   textOnly:    vision=nil  / audio=nil   → 不加载 encoder, 省 ~800 MB
+            //   multimodal:  vision="gpu"/ audio="cpu" → 加载 SigLIP + USM encoder
+            //                (匹配 Gallery Android 的 EngineConfig,
+            //                 Gemma 3n / Gemma 4 audio 都只能 CPU, vision 走 GPU)
+            //
+            // maxTokens=2048: Gemma 4 支持 32K context, 但 iPhone 上 KV cache
+            // 2048 就够 (省 ~500 MB Metal buffer). Gemma 3n 会失败 — 仅 Gemma 4.
+            let (visionBackend, audioBackend): (String?, String?) = {
+                switch mode {
+                case .textOnly:
+                    return (nil, nil)
+                case .multimodal:
+                    return ("gpu", "cpu")
+                }
+            }()
+
+            let newEngine = LiteRTLMEngine(
+                modelPath: modelPath,
+                backend: "gpu",
+                visionBackend: visionBackend,
+                audioBackend: audioBackend,
+                maxTokens: 2048
+            )
             try await newEngine.load()
 
             self.engine = newEngine
             self.loadedModelID = modelID
+            self.currentEngineMode = mode
             self.isLoaded = true
             self.isLoading = false
 
@@ -141,7 +195,7 @@ final class LiteRTBackend: InferenceService {
         self.lastKVPrefillTokens = 0
         self.pendingTextSessionRestore = false
         self.sessionGroupManagedMultimodal = false
-        print("[LiteRT] Persistent session opened for KV cache reuse")
+        print("[LiteRT] Persistent session opened for KV cache reuse (mode=\(mode))")
 
             let elapsed = (CFAbsoluteTimeGetCurrent() - loadStart) * 1000
             self.stats.loadTimeMs = elapsed
@@ -182,6 +236,7 @@ final class LiteRTBackend: InferenceService {
         lastModelOutput = ""
         pendingTextSessionRestore = false
         sessionGroupManagedMultimodal = false
+        currentEngineMode = .textOnly  // reset 到默认, 下次 load 会重新设置
         Task { @MainActor in
             engine?.unload()
         }
@@ -192,6 +247,46 @@ final class LiteRTBackend: InferenceService {
         statusMessage = "等待加载模型..."
         onModelUnloaded?()
         PCLog.modelUnloaded()
+    }
+
+    // MARK: - Engine Mode Switching (Lazy Multimodal Reload)
+
+    /// 确保 engine 当前是 `target` mode. 如果当前 mode 不同, **unload + reload** (~6-7s).
+    ///
+    /// 副作用:
+    /// - KV cache 丢失 (engine 重建). 调用方需要知道下一轮 text chat 会全量 prefill.
+    /// - live / multimodal session 状态被清空.
+    /// - `isGenerating` 会在 reload 期间短暂为 true.
+    ///
+    /// 典型调用点:
+    /// - `generateMultimodal(...)` 开头 → `.multimodal`
+    /// - `enterLiveMode(...)` 开头    → `.multimodal`
+    /// - 外部 UI 主动调 `revertToTextOnly()` → `.textOnly` (省 800 MB)
+    @MainActor
+    func ensureEngineMode(_ target: EngineMode) async throws {
+        guard isLoaded, let modelID = loadedModelID else {
+            // 没加载模型, 无需切换 (下次 load 会按请求的 mode 走)
+            return
+        }
+        guard currentEngineMode != target else { return }
+
+        print("[LiteRT] Engine mode switch: \(currentEngineMode) → \(target) (reloading engine…)")
+        let reloadStart = CFAbsoluteTimeGetCurrent()
+        try await load(modelID: modelID, mode: target)
+        let elapsed = (CFAbsoluteTimeGetCurrent() - reloadStart) * 1000
+        print("[LiteRT] Engine mode switched to \(target) in \(Int(elapsed))ms")
+    }
+
+    /// 显式降级回 text-only. 省 ~800 MB pinned memory (SigLIP + USM encoder).
+    /// 外部可以在"多模态对话结束 / 用户切回 chat"时调用.
+    /// 如果当前已经是 textOnly, no-op.
+    @MainActor
+    func revertToTextOnly() async {
+        do {
+            try await ensureEngineMode(.textOnly)
+        } catch {
+            print("[LiteRT] revertToTextOnly failed: \(error.localizedDescription)")
+        }
     }
 
     /// 重置 KV cache session (新对话 / 切换会话时调用)
@@ -218,6 +313,11 @@ final class LiteRTBackend: InferenceService {
     }
 
     func enterLiveMode(systemPrompt: String?) async throws {
+        // Lazy-reload to multimodal engine if still in text-only mode (~6-7s).
+        // 首次进 Live 会触发. 后续 Live session 都用已加载的 multimodal engine.
+        try await ensureEngineMode(.multimodal)
+
+        // 原有逻辑完全不变: 重新 guard 一次, 拿到的是 (可能) reload 过的 engine.
         guard let engine, isLoaded else {
             throw ModelBackendError.modelNotLoaded
         }
@@ -452,7 +552,55 @@ final class LiteRTBackend: InferenceService {
 
     // MARK: - InferenceService: Multimodal Generation
 
+    /// 外部入口: 先 lazy-reload 到 multimodal engine (如需), 再委托给原有实现.
+    ///
+    /// 首次调用触发 engine unload + reload (~6-7s) 以加载 vision/audio encoder;
+    /// 之后保持 multimodal mode (sticky), 直到外部显式 `revertToTextOnly()`.
+    /// 原有多模态逻辑在 `_generateMultimodalUnchecked(...)` 里**完全不动**.
     func generateMultimodal(
+        images: [CIImage],
+        audios: [AudioInput],
+        prompt: String,
+        systemPrompt: String
+    ) -> AsyncThrowingStream<String, Error> {
+        return AsyncThrowingStream { [weak self] continuation in
+            Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+
+                // 1. 确保 engine 在 multimodal mode (首次可能 reload 6-7s)
+                do {
+                    try await self.ensureEngineMode(.multimodal)
+                } catch {
+                    continuation.finish(throwing: error)
+                    return
+                }
+
+                // 2. 委托给原有实现 (zero-modify)
+                let upstream = self._generateMultimodalUnchecked(
+                    images: images,
+                    audios: audios,
+                    prompt: prompt,
+                    systemPrompt: systemPrompt
+                )
+                do {
+                    for try await chunk in upstream {
+                        continuation.yield(chunk)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// 原有多模态实现, 保持不变. 只改了方法名 (加 `_` 前缀 + Unchecked 后缀).
+    /// 调用方必须先确保 engine 已在 multimodal mode, 否则 `engine.multimodalStreaming`
+    /// 会因为 vision/audio encoder 没加载而失败.
+    private func _generateMultimodalUnchecked(
         images: [CIImage],
         audios: [AudioInput],
         prompt: String,
