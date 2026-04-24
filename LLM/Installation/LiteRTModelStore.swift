@@ -88,7 +88,9 @@ final class LiteRTModelStore: ModelInstaller {
         } catch is CancellationError {
             activeTasks[modelID] = nil
             installStates[modelID] = .notInstalled
-            downloadProgress[modelID] = nil
+            if downloadProgress[modelID] != nil {
+                resumableModelIDs.insert(modelID)
+            }
             await refreshResumableState(for: model)
             throw CancellationError()
         } catch {
@@ -339,8 +341,10 @@ final class LiteRTModelStore: ModelInstaller {
         activeTasks[modelID]?.cancel()
         Task { await downloadCoordinator().pause(assetID: modelID) }
         activeTasks[modelID] = nil
+        if downloadProgress[modelID] != nil {
+            resumableModelIDs.insert(modelID)
+        }
         installStates[modelID] = .notInstalled
-        downloadProgress[modelID] = nil
         refreshResumableStates()
     }
 
