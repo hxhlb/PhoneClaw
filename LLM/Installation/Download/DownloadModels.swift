@@ -5,13 +5,21 @@ struct DownloadAsset: Equatable, Identifiable, Sendable {
     let displayName: String
     let destinationDirectory: URL
     let files: [DownloadFile]
+    let preservesWorkspaceOnCompletion: Bool
 
-    init(id: String, displayName: String, destinationDirectory: URL, files: [DownloadFile]) {
+    init(
+        id: String,
+        displayName: String,
+        destinationDirectory: URL,
+        files: [DownloadFile],
+        preservesWorkspaceOnCompletion: Bool = false
+    ) {
         precondition(Self.isValidID(id), "DownloadAsset.id may only contain letters, digits, '.', '_', or '-'")
         self.id = id
         self.displayName = displayName
         self.destinationDirectory = destinationDirectory
         self.files = files
+        self.preservesWorkspaceOnCompletion = preservesWorkspaceOnCompletion
     }
 
     static func isValidID(_ id: String) -> Bool {

@@ -34,9 +34,15 @@ actor ResumableAssetDownloader {
 
         for file in asset.files {
             let finalURL = asset.destinationDirectory.appendingPathComponent(file.relativePath, isDirectory: false)
-            if fileManager.fileExists(atPath: finalURL.path), let expected = file.expectedSize {
+            if fileManager.fileExists(atPath: finalURL.path) {
                 let size = fileSize(finalURL)
-                if size >= expected * 9 / 10 {
+                let isUsable: Bool
+                if let expected = file.expectedSize {
+                    isUsable = size >= expected * 9 / 10
+                } else {
+                    isUsable = size > 0
+                }
+                if isUsable {
                     completedFiles += 1
                     completedBytes += size
                     continue
@@ -68,8 +74,9 @@ actor ResumableAssetDownloader {
             phase: .complete,
             updatedAt: Date()
         )
-        await observer.onProgress(snapshot)
-        try await manifestStore.purge(assetID: asset.id)
+        if !asset.preservesWorkspaceOnCompletion {
+            try await manifestStore.purge(assetID: asset.id)
+        }
         return snapshot
     }
 
@@ -311,7 +318,7 @@ actor ResumableAssetDownloader {
             bytesReceived += 1
 
             if buffer.count >= flushInterval {
-                fileHandle.write(buffer)
+                try fileHandle.write(contentsOf: buffer)
                 buffer.removeAll(keepingCapacity: true)
 
                 let now = CFAbsoluteTimeGetCurrent()
@@ -340,7 +347,7 @@ actor ResumableAssetDownloader {
         }
 
         if !buffer.isEmpty {
-            fileHandle.write(buffer)
+            try fileHandle.write(contentsOf: buffer)
         }
 
         currentManifest = try await persistProgress(

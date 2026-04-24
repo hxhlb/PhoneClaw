@@ -18,7 +18,7 @@ struct ConfigurationsView: View {
     @State private var systemPrompt: String = ""
     @State private var permissionStatuses: [AppPermissionKind: AppPermissionStatus] = [:]
     @State private var requestingPermission: AppPermissionKind?
-    @State private var liveDownloader = LiveModelDownloader()
+    @State private var liveDownloader = LiveModelStore()
 
     var body: some View {
         NavigationStack {
@@ -437,7 +437,8 @@ struct ConfigurationsView: View {
     private var liveModelStateButton: some View {
         switch liveDownloader.installState {
         case .notInstalled:
-            Button(tr("下载", "Download")) {
+            let completedAssets = liveDownloader.completedAssetCount
+            Button(completedAssets > 0 ? tr("继续下载", "Resume") : tr("下载", "Download")) {
                 Task { await liveDownloader.downloadAll() }
             }
             .font(.caption.weight(.semibold))
@@ -450,7 +451,14 @@ struct ConfigurationsView: View {
         case .downloading:
             EmptyView()
         case .downloaded:
-            modelBadge(tr("已下载", "Downloaded"), color: Theme.accentGreen)
+            Button(tr("删除", "Delete")) {
+                try? liveDownloader.removeAll()
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.accent.opacity(0.15), in: Capsule())
         case .bundled:
             modelBadge(tr("内置", "Bundled"), color: Theme.accentGreen)
         case .failed:
@@ -470,8 +478,16 @@ struct ConfigurationsView: View {
         totalFiles: Int
     ) -> some View {
         let safeTotal = max(totalFiles, 1)
-        let value = Double(min(completedFiles, safeTotal))
         let metrics = liveDownloader.downloadMetrics
+        let fileFraction = Double(min(completedFiles, safeTotal)) / Double(safeTotal)
+        let byteFraction: Double?
+        if let metrics, let totalBytes = metrics.totalBytes, totalBytes > 0 {
+            byteFraction = min(1, max(0, Double(metrics.bytesReceived) / Double(totalBytes)))
+        } else {
+            byteFraction = nil
+        }
+        let combinedFraction = byteFraction.map { ($0 + fileFraction) / 2 } ?? fileFraction
+        let value = min(Double(safeTotal), max(0, combinedFraction) * Double(safeTotal))
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -524,6 +540,13 @@ struct ConfigurationsView: View {
     private func liveStateDetail(_ state: ModelInstallState) -> String? {
         switch state {
         case .notInstalled:
+            let completedAssets = liveDownloader.completedAssetCount
+            if completedAssets > 0 {
+                return tr(
+                    "已完成 \(completedAssets)/\(LiveModelDefinition.all.count)，可继续下载。",
+                    "\(completedAssets)/\(LiveModelDefinition.all.count) complete. You can resume downloading."
+                )
+            }
             return tr("未安装 (~\(LiveModelDefinition.estimatedSizeMB)MB)", "Not installed (~\(LiveModelDefinition.estimatedSizeMB)MB)")
         case .downloaded:
             return tr("已下载到手机本地。", "Downloaded to device.")

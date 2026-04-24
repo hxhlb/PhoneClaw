@@ -38,6 +38,13 @@ actor DownloadManifestStore {
         return url
     }
 
+    func stagingDirectory(for assetID: String) throws -> URL {
+        let url = try workspaceDirectory(for: assetID)
+            .appendingPathComponent("staging", isDirectory: true)
+        try ensureDirectory(url, excludedFromBackup: true)
+        return url
+    }
+
     func readManifest(for assetID: String) throws -> DownloadManifest? {
         let url = try manifestURL(for: assetID)
         guard fileManager.fileExists(atPath: url.path) else { return nil }

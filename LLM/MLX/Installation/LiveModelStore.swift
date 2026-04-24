@@ -1,0 +1,387 @@
+import Foundation
+
+// MARK: - LIVE Model Store
+//
+// Orchestrates the three LIVE voice assets on top of ResumableAssetDownloader.
+// Intermediate state lives under Documents/models/.downloads/<assetID>/ and is
+// finalized into Documents/models/<directoryName>/ only after required files pass.
+
+@Observable
+final class LiveModelStore {
+    private(set) var installState: ModelInstallState = .notInstalled
+    private(set) var downloadMetrics: ModelDownloadMetrics?
+
+    private var currentTask: Task<Void, Never>?
+    private var activeTasks: [String: Task<DownloadProgressSnapshot, Error>] = [:]
+    private var activePlans: [String: LiveAssetDownloadPlan] = [:]
+    private var progressSnapshots: [String: DownloadProgressSnapshot] = [:]
+
+    @ObservationIgnored
+    private var manifestStoreStorage: DownloadManifestStore?
+
+    @ObservationIgnored
+    private var downloaderStorage: ResumableAssetDownloader?
+
+    var isAvailable: Bool {
+        LiveModelDefinition.isAvailable
+    }
+
+    var completedAssetCount: Int {
+        LiveModelDefinition.all.filter { LiveModelDefinition.resolve(for: $0) != nil }.count
+    }
+
+    func refreshState() {
+        cleanupLegacyPartialsWithoutManifest()
+        if LiveModelDefinition.isAvailable {
+            installState = .downloaded
+        } else if case .downloading = installState {
+            return
+        } else if case .checkingSource = installState {
+            return
+        } else {
+            installState = .notInstalled
+        }
+    }
+
+    func downloadAll() async {
+        guard currentTask == nil else { return }
+        if isAvailable {
+            refreshState()
+            return
+        }
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.runDownloadAll()
+        }
+        currentTask = task
+        await task.value
+    }
+
+    func cancelDownload() {
+        currentTask?.cancel()
+        for task in activeTasks.values {
+            task.cancel()
+        }
+    }
+
+    func removeAll() throws {
+        for asset in LiveModelDefinition.all {
+            if let resolved = LiveModelDefinition.resolve(for: asset),
+               resolved.path.hasPrefix(ModelPaths.documentsRoot().path) {
+                try? FileManager.default.removeItem(at: resolved)
+            }
+            try? FileManager.default.removeItem(at: LiveModelDefinition.partialDirectory(for: asset))
+            Task { try? await manifestStore().purge(assetID: asset.id) }
+        }
+        installState = .notInstalled
+        downloadMetrics = nil
+    }
+
+    private func runDownloadAll() async {
+        do {
+            try Task.checkCancellation()
+            let fm = FileManager.default
+            let modelsRoot = ModelPaths.documentsRoot()
+            if !fm.fileExists(atPath: modelsRoot.path) {
+                try fm.createDirectory(at: modelsRoot, withIntermediateDirectories: true)
+            }
+            cleanupLegacyPartialsWithoutManifest()
+
+            await MainActor.run {
+                self.installState = .checkingSource
+                self.downloadMetrics = nil
+            }
+
+            let missingAssets = LiveModelDefinition.all.filter {
+                LiveModelDefinition.resolve(for: $0) == nil
+            }
+            guard !missingAssets.isEmpty else {
+                await MainActor.run {
+                    self.installState = .downloaded
+                    self.downloadMetrics = nil
+                    self.currentTask = nil
+                }
+                return
+            }
+
+            let plans = try await LiveDownloadPlanner.makePlans(for: missingAssets)
+            await MainActor.run {
+                self.configureAggregate(plans)
+            }
+
+            for plan in plans {
+                try Task.checkCancellation()
+                let store = manifestStore()
+                let stagingDirectory = try await store.stagingDirectory(for: plan.liveAsset.id)
+                let asset = plan.downloadAsset(
+                    destinationDirectory: stagingDirectory,
+                    preservesWorkspaceOnCompletion: true
+                )
+
+                let task = Task<DownloadProgressSnapshot, Error> { [weak self] in
+                    guard let self else { throw CancellationError() }
+                    return try await self.downloader().download(asset: asset)
+                }
+                activeTasks[plan.liveAsset.id] = task
+                let snapshot = try await task.value
+                activeTasks[plan.liveAsset.id] = nil
+
+                try validateRequiredFiles(for: plan.liveAsset, at: stagingDirectory)
+                try finalize(plan.liveAsset, stagingDirectory: stagingDirectory)
+                try await store.purge(assetID: plan.liveAsset.id)
+
+                await MainActor.run {
+                    self.applyCompletedSnapshot(snapshot)
+                }
+            }
+
+            await MainActor.run {
+                self.installState = .downloaded
+                self.downloadMetrics = nil
+                self.currentTask = nil
+                self.activePlans = [:]
+                self.progressSnapshots = [:]
+                self.refreshState()
+            }
+        } catch is CancellationError {
+            await MainActor.run {
+                self.installState = .notInstalled
+                self.downloadMetrics = nil
+                self.currentTask = nil
+                self.activeTasks.removeAll()
+                self.refreshState()
+            }
+        } catch {
+            await MainActor.run {
+                self.downloadMetrics = nil
+                self.installState = .failed(self.userVisibleErrorMessage(for: error))
+                self.currentTask = nil
+                self.activeTasks.removeAll()
+            }
+        }
+    }
+
+    private func configureAggregate(_ plans: [LiveAssetDownloadPlan]) {
+        activePlans = Dictionary(uniqueKeysWithValues: plans.map { ($0.liveAsset.id, $0) })
+        progressSnapshots = [:]
+        let totalFiles = plans.reduce(0) { $0 + $1.files.count }
+        installState = .downloading(completedFiles: 0, totalFiles: totalFiles, currentFile: "")
+        downloadMetrics = ModelDownloadMetrics(
+            bytesReceived: 0,
+            totalBytes: aggregateTotalBytes(),
+            bytesPerSecond: nil,
+            sourceLabel: nil
+        )
+    }
+
+    @MainActor
+    fileprivate func applyDownloadProgress(_ snapshot: DownloadProgressSnapshot) {
+        progressSnapshots[snapshot.assetID] = snapshot
+        applyAggregateProgress(activeSnapshot: snapshot)
+    }
+
+    private func applyCompletedSnapshot(_ snapshot: DownloadProgressSnapshot) {
+        progressSnapshots[snapshot.assetID] = snapshot
+        applyAggregateProgress(activeSnapshot: nil)
+    }
+
+    private func applyAggregateProgress(activeSnapshot: DownloadProgressSnapshot?) {
+        let totalFiles = activePlans.values.reduce(0) { $0 + $1.files.count }
+        var completedFiles = 0
+        var downloadedBytes: Int64 = 0
+
+        for plan in activePlans.values {
+            if let snapshot = progressSnapshots[plan.liveAsset.id] {
+                completedFiles += min(snapshot.completedFileCount, snapshot.totalFileCount)
+                downloadedBytes += snapshot.downloadedBytes
+            }
+        }
+
+        let currentFile = activeSnapshot.flatMap { snapshot -> String? in
+            guard let plan = activePlans[snapshot.assetID] else { return snapshot.activeFilePath }
+            guard let activeFilePath = snapshot.activeFilePath else { return plan.liveAsset.displayName }
+            return "\(plan.liveAsset.displayName) / \(activeFilePath)"
+        }
+
+        installState = .downloading(
+            completedFiles: completedFiles,
+            totalFiles: max(totalFiles, 1),
+            currentFile: currentFile ?? ""
+        )
+        downloadMetrics = ModelDownloadMetrics(
+            bytesReceived: downloadedBytes,
+            totalBytes: aggregateTotalBytes(),
+            bytesPerSecond: activeSnapshot?.bytesPerSecond,
+            sourceLabel: activeSnapshot?.activeSourceLabel
+        )
+    }
+
+    private func aggregateTotalBytes() -> Int64? {
+        var total: Int64 = 0
+        for plan in activePlans.values {
+            guard let bytes = plan.totalBytes else { return nil }
+            total += bytes
+        }
+        return total
+    }
+
+    private func finalize(_ asset: LiveModelAsset, stagingDirectory: URL) throws {
+        let finalDirectory = LiveModelDefinition.downloadedDirectory(for: asset)
+        let parent = finalDirectory.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: finalDirectory.path) {
+            try FileManager.default.removeItem(at: finalDirectory)
+        }
+        try FileManager.default.moveItem(at: stagingDirectory, to: finalDirectory)
+    }
+
+    private func validateRequiredFiles(for asset: LiveModelAsset, at directory: URL) throws {
+        for requiredFile in asset.requiredFiles {
+            let url = directory.appendingPathComponent(requiredFile)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                throw DownloadFailure.invalidResponse("\(asset.id) missing required file: \(requiredFile)")
+            }
+            if isDirectory.boolValue {
+                guard directoryContainsNonEmptyFile(url) else {
+                    throw DownloadFailure.invalidResponse("\(asset.id) required directory is empty: \(requiredFile)")
+                }
+            } else {
+                guard fileSize(url) > 0 else {
+                    throw DownloadFailure.invalidResponse("\(asset.id) required file is empty: \(requiredFile)")
+                }
+            }
+        }
+    }
+
+    private func directoryContainsNonEmptyFile(_ directory: URL) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
+        ) else {
+            return false
+        }
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  (values.fileSize ?? 0) > 0 else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    private func cleanupLegacyPartialsWithoutManifest() {
+        for asset in LiveModelDefinition.all {
+            let partial = LiveModelDefinition.partialDirectory(for: asset)
+            guard FileManager.default.fileExists(atPath: partial.path) else { continue }
+            if !FileManager.default.fileExists(atPath: manifestPath(for: asset.id).path) {
+                try? FileManager.default.removeItem(at: partial)
+            }
+        }
+    }
+
+    private func manifestPath(for assetID: String) -> URL {
+        ModelPaths.documentsRoot()
+            .appendingPathComponent(DownloadManifestStore.workspaceDirectoryName, isDirectory: true)
+            .appendingPathComponent(assetID, isDirectory: true)
+            .appendingPathComponent(DownloadManifestStore.manifestFileName, isDirectory: false)
+    }
+
+    private func userVisibleErrorMessage(for error: Error) -> String {
+        if let failure = error as? DownloadFailure {
+            switch failure {
+            case .httpStatus(let code):
+                return tr("LIVE 模型下载失败：HTTP \(code)", "LIVE model download failed: HTTP \(code)")
+            case .insufficientDiskSpace(let required, let available):
+                return tr(
+                    "磁盘空间不足：需要 \(formatBytes(required))，可用 \(formatBytes(available))",
+                    "Not enough storage: needs \(formatBytes(required)), available \(formatBytes(available))"
+                )
+            case .manifestCorrupt:
+                return tr("下载记录损坏，已重新开始下载。", "Download record was corrupt and has been restarted.")
+            case .cancelled:
+                return tr("下载已取消", "Download cancelled")
+            case .invalidURL, .invalidResponse, .validatorMismatch, .fileSystem:
+                return tr("LIVE 模型下载失败，请检查网络后重试。", "LIVE model download failed. Check your network and retry.")
+            }
+        }
+        return error.localizedDescription
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private func fileSize(_ url: URL) -> Int64 {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else { return 0 }
+        return (attrs[.size] as? Int64) ?? 0
+    }
+
+    private func manifestStore() -> DownloadManifestStore {
+        if let manifestStoreStorage {
+            return manifestStoreStorage
+        }
+        let store = DownloadManifestStore(rootDirectory: ModelPaths.documentsRoot())
+        manifestStoreStorage = store
+        return store
+    }
+
+    private func downloader() -> ResumableAssetDownloader {
+        if let downloaderStorage {
+            return downloaderStorage
+        }
+        let downloader = ResumableAssetDownloader(
+            manifestStore: manifestStore(),
+            observer: LiveDownloadObserver(store: self)
+        )
+        downloaderStorage = downloader
+        return downloader
+    }
+}
+
+private actor LiveDownloadObserver: DownloadObserver {
+    weak var store: LiveModelStore?
+
+    init(store: LiveModelStore) {
+        self.store = store
+    }
+
+    func onProgress(_ snapshot: DownloadProgressSnapshot) async {
+        await store?.applyDownloadProgress(snapshot)
+    }
+
+    func onRetry(
+        assetID: String,
+        filePath: String,
+        source: DownloadFile.Source,
+        attempt: Int,
+        error: DownloadFailure
+    ) async {
+        print("[LiveDL] \(source.label) attempt \(attempt) failed for \(assetID)/\(filePath): \(error)")
+    }
+
+    func onSourceSwitch(
+        assetID: String,
+        filePath: String,
+        from: DownloadFile.Source?,
+        to: DownloadFile.Source,
+        reason: DownloadFailure?
+    ) async {
+        let fromLabel = from?.label ?? "none"
+        if let reason {
+            print("[LiveDL] Switching source for \(assetID)/\(filePath): \(fromLabel) -> \(to.label), reason=\(reason)")
+        } else {
+            print("[LiveDL] Switching source for \(assetID)/\(filePath): \(fromLabel) -> \(to.label)")
+        }
+    }
+
+    func onFailure(assetID: String, failure: DownloadFailure) async {
+        print("[LiveDL] asset \(assetID) failed: \(failure)")
+    }
+}
