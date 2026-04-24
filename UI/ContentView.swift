@@ -205,6 +205,11 @@ struct ContentView: View {
     private func toggleThinkingMode() {
         engine.config.enableThinking.toggle()
         engine.applySamplingConfig()
+        // 切换 Think 需要清 KV cache: system prompt 的 <|think|> 段变化后,
+        // 若当前会话已有 context, 下一轮走 delta prompt 路径会**复用**旧
+        // system prompt, 模型继续按旧设置 reasoning. reset 强制下一轮重新
+        // prefill, 新 enableThinking 才能真正生效。
+        Task { await engine.inference.resetKVSession() }
     }
 
     private func canRetry(item: DisplayItem, block: ResponseBlock) -> Bool {
