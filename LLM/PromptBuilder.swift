@@ -175,19 +175,38 @@ struct PromptBuilder {
             clippedSummary = normalizedSummary
         }
 
-        return """
-        \(imageFollowUpContextOpenMarker)
-        上一轮用户发送了图片。
-        上一轮对图片的回答：\(clippedSummary)
-        如果当前问题是在追问上一轮图片，你必须优先基于以上回答继续作答。
-        如果是总结、复述、确认、简化说明，直接基于以上回答生成答案。
-        不要要求用户重新上传图片。
-        如果仅凭以上回答仍无法确定细节，可以明确说“仅根据上一轮描述无法确定”，但不要要求重新发送图片。
-        \(imageFollowUpContextCloseMarker)
+        // zh / en 图片追问 bridge 正文 — marker 之外的指令文案也本地化,
+        // 否则英文 locale 下 open/close marker 是英文但中间塞一大段中文规则,
+        // 会把模型拉回中文回答 (E2B 对 system prompt 里大段中文特别敏感)。
+        if LanguageService.shared.current.isChinese {
+            return """
+            \(imageFollowUpContextOpenMarker)
+            上一轮用户发送了图片。
+            上一轮对图片的回答：\(clippedSummary)
+            如果当前问题是在追问上一轮图片，你必须优先基于以上回答继续作答。
+            如果是总结、复述、确认、简化说明，直接基于以上回答生成答案。
+            不要要求用户重新上传图片。
+            如果仅凭以上回答仍无法确定细节，可以明确说"仅根据上一轮描述无法确定"，但不要要求重新发送图片。
+            \(imageFollowUpContextCloseMarker)
 
-        当前问题：
-        \(userMessage)
-        """
+            当前问题：
+            \(userMessage)
+            """
+        } else {
+            return """
+            \(imageFollowUpContextOpenMarker)
+            The user sent an image in the previous turn.
+            Previous answer about the image: \(clippedSummary)
+            If the current question is a follow-up on the previous image, you must continue answering primarily based on the answer above.
+            For summaries, restatements, confirmations, or simplifications, generate the answer directly from the above.
+            Do not ask the user to upload the image again.
+            If the details still cannot be determined from the previous answer alone, you may say "cannot determine from the previous description alone", but do not ask for the image to be resent.
+            \(imageFollowUpContextCloseMarker)
+
+            Current question:
+            \(userMessage)
+            """
+        }
     }
 
     // internal (not private): 被 LLM/LiveVoice/PromptBuilder+LiveVoice.swift 复用
@@ -221,7 +240,10 @@ struct PromptBuilder {
         // 这是可接受的 trade-off (safety > persona style), 可通过在 SYSPROMPT.md
         // 第一段加 "禁止自称 Gemma" 进一步缓解.
         let rawBase = (systemPrompt ?? defaultSystemPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
-        return rawBase + "\n\n【当前模式: 闲聊】本轮严禁输出 <tool_call>, 严禁提及 Skill / load_skill / 工具调用. 上文所有 Skill 调用规则本轮一律不适用. 用简体中文直接回答, 默认简洁."
+        return rawBase + tr(
+            "\n\n【当前模式: 闲聊】本轮严禁输出 <tool_call>, 严禁提及 Skill / load_skill / 工具调用. 上文所有 Skill 调用规则本轮一律不适用. 用简体中文直接回答, 默认简洁.",
+            "\n\n[Current mode: casual chat] This turn: do NOT emit <tool_call>, do NOT mention Skill / load_skill / tool invocation. All Skill invocation rules above do not apply this turn. Reply directly in English, concise by default."
+        )
     }
 
     /// Preloaded skill block — Router 已经确定性匹配到 skill 时直接带它们的 body
@@ -712,31 +734,64 @@ struct PromptBuilder {
         userQuestion: String,
         currentImageCount: Int = 0
     ) -> String {
-        let leanSystemBlock = """
-        <|turn>system
-        \(defaultSystemPrompt) 用中文回答, 简洁实用.
-        <turn|>
+        // zh / en 两套 system + user block, 保持结构完全对齐。
+        // 中文系统下字节相同于原模板 (保证 E2B/E4B 路径不 regress);
+        // 英文系统下用英文模板, 否则用户调用工具后模型会被中文尾缀拉回中文。
+        let leanSystemBlock: String
+        let userBlock: String
+        if LanguageService.shared.current.isChinese {
+            leanSystemBlock = """
+            <|turn>system
+            \(defaultSystemPrompt) 用中文回答, 简洁实用.
+            <turn|>
 
-        """
+            """
+            userBlock = """
+            <|turn>user
+            用户原始问题：
+            \(userQuestion)\(imagePromptSuffix(count: currentImageCount))
 
-        return leanSystemBlock + extractHistoryBlock(from: originalPrompt) + """
-        <|turn>user
-        用户原始问题：
-        \(userQuestion)\(imagePromptSuffix(count: currentImageCount))
+            工具 \(toolName) 已执行完成。
+            可直接给用户的结果：
+            \(toolResultSummary)
 
-        工具 \(toolName) 已执行完成。
-        可直接给用户的结果：
-        \(toolResultSummary)
+            请基于以上结果直接回答用户。
+            如果上面的内容已经是完整答案，你可以只做最少整理，但不要遗漏关键信息。
+            不要重复调用工具，不要反问，不要提到工具名、Skill、status、result、arguments 等字段。
+            不要输出 Markdown 代码块，也不要输出 JSON、键名、模板或中间步骤。
+            不能输出空白。
+            <turn|>
+            <|turn>model
 
-        请基于以上结果直接回答用户。
-        如果上面的内容已经是完整答案，你可以只做最少整理，但不要遗漏关键信息。
-        不要重复调用工具，不要反问，不要提到工具名、Skill、status、result、arguments 等字段。
-        不要输出 Markdown 代码块，也不要输出 JSON、键名、模板或中间步骤。
-        不能输出空白。
-        <turn|>
-        <|turn>model
+            """
+        } else {
+            leanSystemBlock = """
+            <|turn>system
+            \(defaultSystemPrompt) Reply in English, concise and practical.
+            <turn|>
 
-        """
+            """
+            userBlock = """
+            <|turn>user
+            Original user question:
+            \(userQuestion)\(imagePromptSuffix(count: currentImageCount))
+
+            Tool \(toolName) has finished executing.
+            Result you can give to the user directly:
+            \(toolResultSummary)
+
+            Answer the user directly based on the result above.
+            If the content above is already a complete answer, you may do minimal tidying, but do not drop key information.
+            Do not call tools again, do not ask clarifying questions, do not mention tool names, Skill, status, result, arguments, or any other internal field.
+            Do not output Markdown code blocks, JSON, key names, templates, or intermediate steps.
+            Do not output empty content.
+            <turn|>
+            <|turn>model
+
+            """
+        }
+
+        return leanSystemBlock + extractHistoryBlock(from: originalPrompt) + userBlock
     }
 
     /// 单 Skill + 单工具时，先只让模型抽取 arguments，避免它直接续写出半截
