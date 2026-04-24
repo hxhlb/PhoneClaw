@@ -597,9 +597,6 @@ struct ConfigurationsView: View {
         if !speedText.isEmpty {
             result += " · \(speedText)"
         }
-        if let sourceLabel = metrics.sourceLabel, !sourceLabel.isEmpty {
-            result += " · \(sourceLabel)"
-        }
         return result
     }
 
