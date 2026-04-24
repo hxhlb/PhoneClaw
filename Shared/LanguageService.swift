@@ -83,7 +83,9 @@ final class LanguageService {
         switch raw {
         case .auto:
             // 只看首选语言, 不用 `contains`: 用户主语言英文但备用语言有中文时, 应保持英文。
-            let isZh = Locale.preferredLanguages.first?.hasPrefix("zh") ?? false
+            // `lowercased()`: iOS 通常返回小写 ("zh-hans"), 但不同平台/模拟器配置可能
+            // 返回大小写混合, 先归一化避免边界踩坑。
+            let isZh = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") ?? false
             resolved = isZh ? .zhHans : .en
         case .zhHans, .en:
             resolved = raw
