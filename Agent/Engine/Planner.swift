@@ -285,7 +285,10 @@ extension AgentEngine {
         let selectionSkillsSummary = buildAvailableSkillsSummary(skillIds: selectionCandidateSkillIds)
         let selectedSkillIds: [String]
         guard !selectionSkillsSummary.isEmpty else {
-            messages.append(ChatMessage(role: .assistant, content: "⚠️ 当前没有可用于编排的 Skill。"))
+            messages.append(ChatMessage(role: .assistant, content: tr(
+                "⚠️ 当前没有可用于编排的 Skill。",
+                "⚠️ No Skills are currently available for orchestration."
+            )))
             isProcessing = false
             return true
         }
@@ -406,8 +409,10 @@ extension AgentEngine {
 
             guard let rawPlan = await streamLLM(prompt: planningPrompt, images: images) else {
                 let message = completedSteps.isEmpty
-                    ? "⚠️ 无法生成执行计划，请重试。"
-                    : "⚠️ 无法继续规划剩余步骤，请重试。"
+                    ? tr("⚠️ 无法生成执行计划，请重试。",
+                         "⚠️ Could not generate an execution plan. Please retry.")
+                    : tr("⚠️ 无法继续规划剩余步骤，请重试。",
+                         "⚠️ Could not continue planning the remaining steps. Please retry.")
                 finishPlanning(with: message)
                 return true
             }
@@ -416,8 +421,10 @@ extension AgentEngine {
             guard let parsedPlan = parseExecutionPlan(cleanedPlan),
                   let validatedPlan = validateExecutionPlan(parsedPlan, candidateSkillIds: remainingSkillIds) else {
                 let message = completedSteps.isEmpty
-                    ? "⚠️ 当前无法生成有效计划，请把需求说得更具体一些。"
-                    : "⚠️ 当前无法继续规划剩余步骤，请把需求说得更具体一些。"
+                    ? tr("⚠️ 当前无法生成有效计划，请把需求说得更具体一些。",
+                         "⚠️ Could not produce a valid plan. Please be more specific about what you need.")
+                    : tr("⚠️ 当前无法继续规划剩余步骤，请把需求说得更具体一些。",
+                         "⚠️ Could not continue planning the remaining steps. Please be more specific.")
                 finishPlanning(with: message)
                 return true
             }
@@ -431,8 +438,10 @@ extension AgentEngine {
 
             guard !validatedPlan.steps.isEmpty else {
                 let message = completedSteps.isEmpty
-                    ? "⚠️ 当前没有可执行步骤，请补充更具体的信息。"
-                    : "⚠️ 当前无法继续规划剩余步骤，请补充更具体的信息。"
+                    ? tr("⚠️ 当前没有可执行步骤，请补充更具体的信息。",
+                         "⚠️ No executable steps right now. Please provide more specific details.")
+                    : tr("⚠️ 当前无法继续规划剩余步骤，请补充更具体的信息。",
+                         "⚠️ Cannot continue planning the remaining steps. Please provide more specific details.")
                 finishPlanning(with: message)
                 return true
             }
@@ -451,7 +460,10 @@ extension AgentEngine {
 
                     guard let instructions = handleLoadSkill(skillName: step.skill) else {
                         messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
-                        finishPlanning(with: "⚠️ 无法加载 Skill \(displayName)，已停止执行。")
+                        finishPlanning(with: tr(
+                            "⚠️ 无法加载 Skill \(displayName)，已停止执行。",
+                            "⚠️ Could not load Skill \(displayName). Execution stopped."
+                        ))
                         return true
                     }
 
@@ -463,7 +475,10 @@ extension AgentEngine {
 
                 let displayName = loadedDisplayNames[step.skill] ?? findDisplayName(for: step.skill)
                 guard let cardIndex = skillCardIndices[step.skill] else {
-                    finishPlanning(with: "⚠️ 当前规划步骤无效，已停止执行。")
+                    finishPlanning(with: tr(
+                        "⚠️ 当前规划步骤无效，已停止执行。",
+                        "⚠️ Current plan step is invalid. Execution stopped."
+                    ))
                     return true
                 }
 
@@ -486,12 +501,15 @@ extension AgentEngine {
 
                     guard let rawOutput = await streamLLM(prompt: contentPrompt, images: images) else {
                         messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
-                        finishPlanning(with: "⚠️ \(displayName) 步骤无回复，请重试。")
+                        finishPlanning(with: tr(
+                            "⚠️ \(displayName) 步骤无回复，请重试。",
+                            "⚠️ \(displayName) step produced no reply. Please retry."
+                        ))
                         return true
                     }
 
                     let cleanedOutput = cleanOutput(rawOutput)
-                    let summary = cleanedOutput.isEmpty ? "(无输出)" : cleanedOutput
+                    let summary = cleanedOutput.isEmpty ? tr("(无输出)", "(no output)") : cleanedOutput
 
                     messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
                     messages.append(ChatMessage(role: .skillResult, content: summary, skillName: step.skill))
@@ -508,7 +526,10 @@ extension AgentEngine {
                 }
 
                 guard let tool = toolRegistry.find(name: step.tool) else {
-                    finishPlanning(with: "⚠️ 当前规划步骤无效，已停止执行。")
+                    finishPlanning(with: tr(
+                        "⚠️ 当前规划步骤无效，已停止执行。",
+                        "⚠️ Current plan step is invalid. Execution stopped."
+                    ))
                     return true
                 }
 
@@ -529,13 +550,19 @@ extension AgentEngine {
                     )
 
                     guard let rawArguments = await streamLLM(prompt: argumentsPrompt, images: images) else {
-                        finishPlanning(with: "⚠️ 无法提取步骤参数，请重试。")
+                        finishPlanning(with: tr(
+                            "⚠️ 无法提取步骤参数，请重试。",
+                            "⚠️ Could not extract step parameters. Please retry."
+                        ))
                         return true
                     }
 
                     let cleanedArguments = cleanOutput(rawArguments)
                     guard let payload = parseJSONObject(cleanedArguments) else {
-                        finishPlanning(with: "⚠️ 无法提取步骤参数，请把需求说得更具体一些。")
+                        finishPlanning(with: tr(
+                            "⚠️ 无法提取步骤参数，请把需求说得更具体一些。",
+                            "⚠️ Could not extract step parameters. Please be more specific."
+                        ))
                         return true
                     }
 
@@ -546,7 +573,10 @@ extension AgentEngine {
                     }
 
                     guard toolRegistry.validatesArguments(payload, for: step.tool) else {
-                        finishPlanning(with: "⚠️ 当前步骤缺少必要参数，请把需求说得更具体一些。")
+                        finishPlanning(with: tr(
+                            "⚠️ 当前步骤缺少必要参数，请把需求说得更具体一些。",
+                            "⚠️ Current step is missing required parameters. Please be more specific."
+                        ))
                         return true
                     }
 
@@ -592,7 +622,10 @@ extension AgentEngine {
                     toolResultsForAnswer.append((toolName: step.tool, result: canonicalResult.summary))
                 } catch {
                     messages[cardIndex].update(role: .system, content: "done", skillName: displayName)
-                    finishPlanning(with: "❌ Tool 执行失败:\(error.localizedDescription)")
+                    finishPlanning(with: tr(
+                        "❌ Tool 执行失败:\(error.localizedDescription)",
+                        "❌ Tool execution failed: \(error.localizedDescription)"
+                    ))
                     return true
                 }
             }
@@ -601,7 +634,10 @@ extension AgentEngine {
         }
 
         if !remainingSkillIds.isEmpty {
-            finishPlanning(with: "⚠️ 还缺少部分步骤未完成，请把需求说得更具体一些。")
+            finishPlanning(with: tr(
+                "⚠️ 还缺少部分步骤未完成，请把需求说得更具体一些。",
+                "⚠️ Some steps still cannot be completed. Please be more specific."
+            ))
             return true
         }
 
