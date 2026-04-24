@@ -132,6 +132,13 @@
 		BB2000000000000000000100 /* LanguageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1000000000000000000100 /* LanguageService.swift */; };
 		BB2000000000000000000101 /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1000000000000000000101 /* L10n.swift */; };
 		BB2000000000000000000102 /* PromptLocale.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1000000000000000000102 /* PromptLocale.swift */; };
+		D0B100000000000000000001 /* DownloadModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000001 /* DownloadModels.swift */; };
+		D0B100000000000000000002 /* DownloadProgressSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000002 /* DownloadProgressSnapshot.swift */; };
+		D0B100000000000000000003 /* DownloadFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000003 /* DownloadFailure.swift */; };
+		D0B100000000000000000004 /* DownloadManifestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000004 /* DownloadManifestStore.swift */; };
+		D0B100000000000000000005 /* DownloadPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000005 /* DownloadPreflight.swift */; };
+		D0B100000000000000000006 /* DownloadObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000006 /* DownloadObserver.swift */; };
+		D0B100000000000000000007 /* ResumableAssetDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A100000000000000000007 /* ResumableAssetDownloader.swift */; };
 		B1A2C3D4E5F607182930C002 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = B1A2C3D4E5F607182930C000 /* InfoPlist.strings */; };
 		BD75E7E5620A8FF0A868E9F0 /* libPods-PhoneClaw.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4F4ACB3F4531FF61E0AADA07 /* libPods-PhoneClaw.a */; };
 		BE6E6C928537BCC4DBC975E9 /* (null) in Sources */ = {isa = PBXBuildFile; };
@@ -260,6 +267,13 @@
 		C6B2CA800EABEF23C3821C51 /* LiveVoiceConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LiveVoiceConstants.swift; path = LLM/LiveVoice/LiveVoiceConstants.swift; sourceTree = SOURCE_ROOT; };
 		C70EDE41C438263F820D0FCC /* OrbShaderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrbShaderSource.swift; path = Live/UI/LiveOrb/OrbShaderSource.swift; sourceTree = SOURCE_ROOT; };
 		CEA10A9D8F9AB4A2764A1A13 /* SherpaOnnx.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SherpaOnnx.swift; path = Shared/Audio/SherpaOnnx.swift; sourceTree = SOURCE_ROOT; };
+		D0A100000000000000000001 /* DownloadModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadModels.swift; sourceTree = "<group>"; };
+		D0A100000000000000000002 /* DownloadProgressSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadProgressSnapshot.swift; sourceTree = "<group>"; };
+		D0A100000000000000000003 /* DownloadFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadFailure.swift; sourceTree = "<group>"; };
+		D0A100000000000000000004 /* DownloadManifestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManifestStore.swift; sourceTree = "<group>"; };
+		D0A100000000000000000005 /* DownloadPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadPreflight.swift; sourceTree = "<group>"; };
+		D0A100000000000000000006 /* DownloadObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadObserver.swift; sourceTree = "<group>"; };
+		D0A100000000000000000007 /* ResumableAssetDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumableAssetDownloader.swift; sourceTree = "<group>"; };
 		D269F8BFCAB68D82440F704B /* SkillsManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkillsManagerView.swift; sourceTree = "<group>"; };
 		D3A1B2C3D4E5F60718290101 /* ToolRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolRegistry.swift; sourceTree = "<group>"; };
 		D3A1B2C3D4E5F60718290102 /* AppPermissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPermissions.swift; sourceTree = "<group>"; };
@@ -469,9 +483,24 @@
 		BB3000000000000000000004 /* Installation */ = {
 			isa = PBXGroup;
 			children = (
+				D0C100000000000000000001 /* Download */,
 				BB1000000000000000000009 /* LiteRTModelStore.swift */,
 			);
 			path = Installation;
+			sourceTree = "<group>";
+		};
+		D0C100000000000000000001 /* Download */ = {
+			isa = PBXGroup;
+			children = (
+				D0A100000000000000000001 /* DownloadModels.swift */,
+				D0A100000000000000000002 /* DownloadProgressSnapshot.swift */,
+				D0A100000000000000000003 /* DownloadFailure.swift */,
+				D0A100000000000000000004 /* DownloadManifestStore.swift */,
+				D0A100000000000000000005 /* DownloadPreflight.swift */,
+				D0A100000000000000000006 /* DownloadObserver.swift */,
+				D0A100000000000000000007 /* ResumableAssetDownloader.swift */,
+			);
+			path = Download;
 			sourceTree = "<group>";
 		};
 		BB3000000000000000000005 /* LiteRT */ = {
@@ -869,6 +898,13 @@
 				BB2000000000000000000099 /* AudioBypassTest.swift in Sources */,
 				BB2000000000000000000008 /* LiteRTCatalog.swift in Sources */,
 				BB2000000000000000000009 /* LiteRTModelStore.swift in Sources */,
+				D0B100000000000000000001 /* DownloadModels.swift in Sources */,
+				D0B100000000000000000002 /* DownloadProgressSnapshot.swift in Sources */,
+				D0B100000000000000000003 /* DownloadFailure.swift in Sources */,
+				D0B100000000000000000004 /* DownloadManifestStore.swift in Sources */,
+				D0B100000000000000000005 /* DownloadPreflight.swift in Sources */,
+				D0B100000000000000000006 /* DownloadObserver.swift in Sources */,
+				D0B100000000000000000007 /* ResumableAssetDownloader.swift in Sources */,
 				BB2000000000000000000012 /* PCLog.swift in Sources */,
 				BB2000000000000000000100 /* LanguageService.swift in Sources */,
 				BB2000000000000000000101 /* L10n.swift in Sources */,
