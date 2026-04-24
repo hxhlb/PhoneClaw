@@ -248,8 +248,6 @@
 		BB1000000000000000000007 /* LiteRTBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiteRTBackend.swift; sourceTree = "<group>"; };
 		BB1000000000000000000008 /* LiteRTCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiteRTCatalog.swift; sourceTree = "<group>"; };
 		BB1000000000000000000009 /* LiteRTModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiteRTModelStore.swift; sourceTree = "<group>"; };
-		BB1000000000000000000010 /* gemma-4-E2B-it.litertlm */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-4-E2B-it.litertlm"; path = "Models/gemma-4-E2B-it.litertlm"; sourceTree = SOURCE_ROOT; };
-		BB1000000000000000000011 /* gemma-4-E4B-it.litertlm */ = {isa = PBXFileReference; lastKnownFileType = file; name = "gemma-4-E4B-it.litertlm"; path = "Models/gemma-4-E4B-it.litertlm"; sourceTree = SOURCE_ROOT; };
 		BB1000000000000000000012 /* PCLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PCLog.swift; path = Shared/PCLog.swift; sourceTree = SOURCE_ROOT; };
 		BB1000000000000000000099 /* AudioBypassTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioBypassTest.swift; sourceTree = "<group>"; };
 		BB1000000000000000000100 /* LanguageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LanguageService.swift; path = Shared/LanguageService.swift; sourceTree = SOURCE_ROOT; };
@@ -327,7 +325,6 @@
 				AC5E0AA2711EA01E891DE3A7 /* Products */,
 				03C67BBB35FEB376174D7420 /* Pods */,
 				E1D6A9BAE368B2FB909A7774 /* Frameworks */,
-				A313E6512F94017B00B15DE6 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -348,15 +345,6 @@
 				C1A2B3D4E5F607182930A1C3 /* SkillRegistry.swift */,
 			);
 			path = Skills;
-			sourceTree = "<group>";
-		};
-		A313E6512F94017B00B15DE6 /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				BB1000000000000000000010 /* gemma-4-E2B-it.litertlm */,
-				BB1000000000000000000011 /* gemma-4-E4B-it.litertlm */,
-			);
-			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 		A31476ED2F85741500318978 /* Engine */ = {
@@ -1033,7 +1021,6 @@
 				CODE_SIGN_ENTITLEMENTS = PhoneClaw.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CURRENT_PROJECT_VERSION = 6;
-				DEVELOPMENT_TEAM = ZP4QNJ35TH;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1071,7 +1058,6 @@
 				CODE_SIGN_ENTITLEMENTS = PhoneClaw.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CURRENT_PROJECT_VERSION = 6;
-				DEVELOPMENT_TEAM = ZP4QNJ35TH;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
