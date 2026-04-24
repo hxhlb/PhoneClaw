@@ -295,8 +295,8 @@ struct ConfigurationsView: View {
                 )
             }
             return tr(
-                "请先下载 \(selectedModel.displayName)",
-                "Download \(selectedModel.displayName) first"
+                "请先下载模型",
+                "Download a model first"
             )
         case .checkingSource:
             return tr(
@@ -404,11 +404,26 @@ struct ConfigurationsView: View {
                     get: { LanguageService.shared.selected },
                     set: { newValue in
                         LanguageService.shared.selected = newValue
-                        // Re-read locale-backed runtime content that is cached outside SwiftUI rendering.
-                        engine.skillRegistry.reloadAll()
+                        // Locale 切换的 runtime cascade. @Observable 让视图里 `tr()` 自动重算,
+                        // 但下面这些是 runtime 已经固化过的 resolved 内容, 不会自动重建:
+                        //   1. Registry bundle 层: reloadAll 重读 SKILL.en.md vs SKILL.md
+                        //   2. Engine cache 层: reloadSkills 把 registry 的新 metadata 同步进
+                        //      engine.skillEntries (UI chips 读的是这个数组, 不是 registry)
+                        //   3. SYSPROMPT.md 物理文件: 跑 locale-mismatch 迁移, 重写默认
+                        //   4. 本地 @State systemPrompt: TextEditor 绑的是这个, 不会自动
+                        //      从 engine.config.systemPrompt 同步, 必须手动重拉
+                        //   5. inference.statusMessage: 存的是 tr() 当时的快照 string, 重写
+                        _ = engine.skillRegistry.reloadAll()
+                        engine.reloadSkills()
                         engine.loadSystemPrompt()
+                        systemPrompt = engine.config.systemPrompt
                         if !engine.inference.isLoaded {
-                            engine.inference.statusMessage = tr("等待加载模型...", "Waiting to load model...")
+                            if let selectedModel = engine.availableModels.first(where: { $0.id == selectedModelID }),
+                               engine.installer.artifactPath(for: selectedModel) == nil {
+                                engine.inference.statusMessage = tr("请先下载模型", "Download a model first")
+                            } else {
+                                engine.inference.statusMessage = tr("等待加载模型...", "Waiting to load model...")
+                            }
                         }
                     }
                 )
@@ -985,12 +1000,7 @@ struct ConfigurationsView: View {
 
         guard let selectedModel = engine.availableModels.first(where: { $0.id == selectedModelID }),
               engine.installer.artifactPath(for: selectedModel) != nil else {
-            if let missingModel = engine.availableModels.first(where: { $0.id == selectedModelID }) {
-                engine.inference.statusMessage = tr(
-                    "请先下载 \(missingModel.displayName) 模型。",
-                    "Please download the \(missingModel.displayName) model first."
-                )
-            }
+            engine.inference.statusMessage = tr("请先下载模型", "Download a model first")
             return false
         }
 

@@ -253,7 +253,7 @@ struct ContentView: View {
                 Circle()
                     .fill(engine.inference.isLoaded ? Theme.accentGreen : Theme.accent)
                     .frame(width: 6, height: 6)
-                Text(engine.inference.isLoaded ? engine.catalog.modelDisplayName : engine.inference.statusMessage)
+                Text(topModelStatusText)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -305,6 +305,34 @@ struct ContentView: View {
         }
         .padding(.horizontal, Theme.inputPadH)
         .padding(.vertical, 10)
+    }
+
+    private var topModelStatusText: String {
+        if engine.inference.isLoaded {
+            return engine.catalog.modelDisplayName
+        }
+
+        let selectedModel = engine.catalog.selectedModel
+        switch engine.installer.installState(for: selectedModel.id) {
+        case .notInstalled:
+            if engine.installer.hasResumableDownload(for: selectedModel.id) {
+                return tr("可继续下载模型", "Resume model download")
+            }
+            if engine.installer.artifactPath(for: selectedModel) == nil {
+                return tr("请先下载模型", "Download a model first")
+            }
+            return engine.inference.statusMessage
+        case .checkingSource:
+            return tr("正在准备下载...", "Preparing download...")
+        case .downloading:
+            return tr("正在下载模型...", "Downloading model...")
+        case .downloaded:
+            return tr("模型已下载，等待加载", "Model downloaded, waiting to load")
+        case .bundled:
+            return tr("模型已内置，等待加载", "Bundled model, waiting to load")
+        case .failed:
+            return tr("模型下载失败", "Model download failed")
+        }
     }
 
     // MARK: - 欢迎页
