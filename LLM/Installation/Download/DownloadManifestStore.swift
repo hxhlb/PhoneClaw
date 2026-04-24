@@ -38,6 +38,14 @@ actor DownloadManifestStore {
         return url
     }
 
+    func resumeDataURL(for assetID: String, relativePath: String) throws -> URL {
+        let url = try workspaceDirectory(for: assetID)
+            .appendingPathComponent(relativePath, isDirectory: false)
+            .appendingPathExtension("resumeData")
+        try ensureDirectory(url.deletingLastPathComponent(), excludedFromBackup: true)
+        return url
+    }
+
     func stagingDirectory(for assetID: String) throws -> URL {
         let url = try workspaceDirectory(for: assetID)
             .appendingPathComponent("staging", isDirectory: true)

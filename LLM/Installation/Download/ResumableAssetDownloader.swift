@@ -5,17 +5,20 @@ actor ResumableAssetDownloader {
     private let observer: any DownloadObserver
     private let fileManager: FileManager
     private let urlSession: URLSession
+    private let backgroundSession: BackgroundDownloadSession
 
     init(
         manifestStore: DownloadManifestStore,
         observer: any DownloadObserver = NoopDownloadObserver(),
         fileManager: FileManager = .default,
-        urlSession: URLSession = .shared
+        urlSession: URLSession = .shared,
+        backgroundSession: BackgroundDownloadSession = .shared
     ) {
         self.manifestStore = manifestStore
         self.observer = observer
         self.fileManager = fileManager
         self.urlSession = urlSession
+        self.backgroundSession = backgroundSession
     }
 
     func download(asset: DownloadAsset) async throws -> DownloadProgressSnapshot {
@@ -175,7 +178,7 @@ actor ResumableAssetDownloader {
                 if isCancellation(error) {
                     let latestManifest = (try? await manifestStore.readManifest(for: asset.id)) ?? currentManifest
                     let existingEntry = latestManifest.files.first(where: { $0.relativePath == file.relativePath })
-                    let bytes = fileSize(partialURL)
+                    let bytes = max(fileSize(partialURL), existingEntry?.downloadedBytes ?? 0)
                     currentManifest = updatedManifest(
                         latestManifest,
                         asset: asset,
@@ -203,7 +206,7 @@ actor ResumableAssetDownloader {
                 )
                 let latestManifest = (try? await manifestStore.readManifest(for: asset.id)) ?? currentManifest
                 let existingEntry = latestManifest.files.first(where: { $0.relativePath == file.relativePath })
-                let bytes = fileSize(partialURL)
+                let bytes = max(fileSize(partialURL), existingEntry?.downloadedBytes ?? 0)
                 currentManifest = updatedManifest(
                     latestManifest,
                     asset: asset,
@@ -244,19 +247,95 @@ actor ResumableAssetDownloader {
     ) {
         var request = URLRequest(url: source.url)
         let offset = initialOffset
-        if offset > 0 {
+        let resumeDataURL = try await manifestStore.resumeDataURL(for: asset.id, relativePath: file.relativePath)
+        let manifestEntry = manifest.files.first { $0.relativePath == file.relativePath }
+        let resumeDataSourceMatches =
+            manifestEntry?.selectedSourceLabel == source.label &&
+            (manifestEntry?.metadata?.sourceURL == nil || manifestEntry?.metadata?.sourceURL == source.url)
+        let resumeData = offset == 0 && resumeDataSourceMatches ? (try? Data(contentsOf: resumeDataURL)) : nil
+        let usingResumeData = resumeData?.isEmpty == false
+        if offset == 0 && !resumeDataSourceMatches {
+            try? fileManager.removeItem(at: resumeDataURL)
+        }
+
+        if offset > 0, !usingResumeData {
             request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
             if let ifRange = metadata?.etag ?? metadata?.lastModified {
                 request.setValue(ifRange, forHTTPHeaderField: "If-Range")
             }
         }
 
-        let (bytes, response) = try await urlSession.bytes(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DownloadFailure.invalidResponse("Missing HTTP response")
+        let tracker = DownloadProgressAccumulator(
+            downloadedBytes: offset,
+            expectedBytes: file.expectedSize
+        )
+        let handle = backgroundSession.start(
+            request: request,
+            resumeData: resumeData
+        ) { [observer, manifestStore] bytesWritten, totalBytesExpected in
+            let downloadedBytes = usingResumeData
+                ? bytesWritten
+                : offset + bytesWritten
+            let expectedBytes: Int64? = {
+                if totalBytesExpected > 0 {
+                    return usingResumeData ? totalBytesExpected : offset + totalBytesExpected
+                }
+                return file.expectedSize
+            }()
+            tracker.update(downloadedBytes: downloadedBytes, expectedBytes: expectedBytes)
+
+            Task {
+                let updated = updatedManifestForProgress(
+                    manifest,
+                    asset: asset,
+                    file: file,
+                    source: source,
+                    downloadedBytes: downloadedBytes,
+                    expectedBytes: expectedBytes,
+                    metadata: metadata
+                )
+                try? await manifestStore.writeManifest(updated, for: asset.id)
+                await observer.onProgress(
+                    DownloadProgressSnapshot(
+                        assetID: asset.id,
+                        completedFileCount: completedFiles,
+                        totalFileCount: asset.files.count,
+                        downloadedBytes: completedBytes + downloadedBytes,
+                        totalBytes: totalBytes ?? expectedBytes.map { completedBytes + $0 },
+                        bytesPerSecond: nil,
+                        activeFilePath: file.relativePath,
+                        activeSourceLabel: source.label,
+                        phase: .downloading,
+                        updatedAt: Date()
+                    )
+                )
+            }
         }
 
-        if offset > 0, httpResponse.statusCode == 416 {
+        let result: BackgroundDownloadResult
+        do {
+            result = try await handle.wait()
+            try? fileManager.removeItem(at: resumeDataURL)
+        } catch let error as BackgroundDownloadError {
+            if let resumeData = error.resumeData {
+                try? resumeData.write(to: resumeDataURL, options: [.atomic])
+            }
+            if error.isCancellation {
+                throw CancellationError()
+            }
+            throw error.underlyingError ?? error
+        }
+
+        let httpResponse = result.response
+        guard let temporaryFileURL = result.fileURL else {
+            throw DownloadFailure.invalidResponse("Missing downloaded file")
+        }
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw DownloadFailure.httpStatus(httpResponse.statusCode)
+        }
+
+        if offset > 0, !usingResumeData, httpResponse.statusCode == 416 {
             throw DownloadFailure.validatorMismatch(
                 expected: "valid byte range from \(offset)",
                 actual: "HTTP 416",
@@ -264,11 +343,7 @@ actor ResumableAssetDownloader {
             )
         }
 
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw DownloadFailure.httpStatus(httpResponse.statusCode)
-        }
-
-        if offset > 0, httpResponse.statusCode != 206 {
+        if offset > 0, !usingResumeData, httpResponse.statusCode != 206 {
             throw DownloadFailure.validatorMismatch(
                 expected: "206 Partial Content",
                 actual: "HTTP \(httpResponse.statusCode)",
@@ -276,22 +351,19 @@ actor ResumableAssetDownloader {
             )
         }
 
-        let appending = offset > 0
-        let responseMetadata = makeMetadata(from: httpResponse, source: source, offset: offset, fallbackExpectedSize: file.expectedSize)
-        let expectedBytes = responseMetadata.contentLength ?? file.expectedSize
+        let responseMetadata = makeMetadata(from: httpResponse, source: source, offset: usingResumeData ? 0 : offset, fallbackExpectedSize: file.expectedSize)
+        let expectedBytes = tracker.expectedBytes ?? responseMetadata.contentLength ?? file.expectedSize
 
-        let fileHandle = try openPartialFile(at: partialURL, appending: appending)
-        defer { try? fileHandle.close() }
+        if offset > 0, !usingResumeData {
+            try appendDownloadedFile(temporaryFileURL, to: partialURL)
+        } else {
+            try? fileManager.removeItem(at: partialURL)
+            try fileManager.moveItem(at: temporaryFileURL, to: partialURL)
+        }
+        try? fileManager.removeItem(at: temporaryFileURL)
 
-        var currentManifest = manifest
-        var bytesReceived = offset
-        var buffer = Data()
-        let flushInterval = 1024 * 1024
-        let startedAt = CFAbsoluteTimeGetCurrent()
-        var lastSpeedUpdate = startedAt
-        var lastSpeedBytes = bytesReceived
-        var smoothedSpeed: Double = 0
-
+        let bytesReceived = fileSize(partialURL)
+        var currentManifest = (try? await manifestStore.readManifest(for: asset.id)) ?? manifest
         currentManifest = try await persistProgress(
             manifest: currentManifest,
             asset: asset,
@@ -303,60 +375,7 @@ actor ResumableAssetDownloader {
             completedFiles: completedFiles,
             completedBytes: completedBytes,
             totalBytes: totalBytes,
-            bytesPerSecond: smoothedSpeed
-        )
-
-        for try await byte in bytes {
-            if Task.isCancelled { throw CancellationError() }
-
-            buffer.append(byte)
-            bytesReceived += 1
-
-            if buffer.count >= flushInterval {
-                try fileHandle.write(contentsOf: buffer)
-                buffer.removeAll(keepingCapacity: true)
-
-                let now = CFAbsoluteTimeGetCurrent()
-                let elapsed = now - lastSpeedUpdate
-                if elapsed > 0.5 {
-                    let instantSpeed = Double(bytesReceived - lastSpeedBytes) / elapsed
-                    smoothedSpeed = smoothedSpeed > 0 ? smoothedSpeed * 0.7 + instantSpeed * 0.3 : instantSpeed
-                    lastSpeedUpdate = now
-                    lastSpeedBytes = bytesReceived
-                }
-
-                currentManifest = try await persistProgress(
-                    manifest: currentManifest,
-                    asset: asset,
-                    file: file,
-                    source: source,
-                    bytesReceived: bytesReceived,
-                    expectedBytes: expectedBytes,
-                    metadata: responseMetadata,
-                    completedFiles: completedFiles,
-                    completedBytes: completedBytes,
-                    totalBytes: totalBytes,
-                    bytesPerSecond: smoothedSpeed
-                )
-            }
-        }
-
-        if !buffer.isEmpty {
-            try fileHandle.write(contentsOf: buffer)
-        }
-
-        currentManifest = try await persistProgress(
-            manifest: currentManifest,
-            asset: asset,
-            file: file,
-            source: source,
-            bytesReceived: bytesReceived,
-            expectedBytes: expectedBytes,
-            metadata: responseMetadata,
-            completedFiles: completedFiles,
-            completedBytes: completedBytes,
-            totalBytes: totalBytes,
-            bytesPerSecond: smoothedSpeed
+            bytesPerSecond: 0
         )
 
         return (currentManifest, bytesReceived, expectedBytes, responseMetadata)
@@ -540,18 +559,23 @@ actor ResumableAssetDownloader {
         return nil
     }
 
-    private func openPartialFile(at url: URL, appending: Bool) throws -> FileHandle {
-        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if !appending {
-            try? fileManager.removeItem(at: url)
-            fileManager.createFile(atPath: url.path, contents: nil)
+    private func appendDownloadedFile(_ sourceURL: URL, to destinationURL: URL) throws {
+        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: destinationURL.path) {
+            fileManager.createFile(atPath: destinationURL.path, contents: nil)
         }
 
-        let handle = try FileHandle(forWritingTo: url)
-        if appending {
-            try handle.seekToEnd()
+        let input = try FileHandle(forReadingFrom: sourceURL)
+        defer { try? input.close() }
+        let output = try FileHandle(forWritingTo: destinationURL)
+        defer { try? output.close() }
+        try output.seekToEnd()
+
+        while true {
+            let data = try input.read(upToCount: 1024 * 1024) ?? Data()
+            if data.isEmpty { break }
+            try output.write(contentsOf: data)
         }
-        return handle
     }
 
     private func readManifestOrRestart(assetID: String) async throws -> DownloadManifest? {
@@ -669,4 +693,351 @@ actor ResumableAssetDownloader {
         }
         return false
     }
+}
+
+struct BackgroundDownloadResult: Sendable {
+    let fileURL: URL?
+    let response: HTTPURLResponse
+}
+
+enum BackgroundDownloadError: Error {
+    case cancelled(resumeData: Data?)
+    case failed(Error, resumeData: Data?)
+    case missingDownloadedFile
+    case invalidResponse
+
+    var resumeData: Data? {
+        switch self {
+        case .cancelled(let resumeData), .failed(_, let resumeData):
+            return resumeData
+        case .missingDownloadedFile, .invalidResponse:
+            return nil
+        }
+    }
+
+    var underlyingError: Error? {
+        switch self {
+        case .failed(let error, _):
+            return error
+        case .cancelled, .missingDownloadedFile, .invalidResponse:
+            return nil
+        }
+    }
+
+    var isCancellation: Bool {
+        if case .cancelled = self { return true }
+        return false
+    }
+}
+
+final class BackgroundDownloadSession: NSObject, URLSessionDownloadDelegate, URLSessionTaskDelegate {
+    static let shared = BackgroundDownloadSession()
+
+    private let stateQueue = DispatchQueue(label: "com.phoneclaw.background-downloads.state")
+    private var transfers: [Int: BackgroundTransfer] = [:]
+    private var backgroundCompletionHandlers: [String: () -> Void] = [:]
+
+    private lazy var session: URLSession = {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.phoneclaw.app"
+        let configuration = URLSessionConfiguration.background(withIdentifier: "\(bundleID).background-downloads")
+        configuration.sessionSendsLaunchEvents = true
+        configuration.isDiscretionary = false
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 60 * 60 * 12
+        configuration.allowsConstrainedNetworkAccess = true
+        configuration.allowsExpensiveNetworkAccess = true
+        return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+    }()
+
+    private override init() {
+        super.init()
+    }
+
+    func start(
+        request: URLRequest,
+        resumeData: Data?,
+        progress: @escaping @Sendable (_ bytesWritten: Int64, _ totalBytesExpected: Int64) -> Void
+    ) -> BackgroundDownloadTaskHandle {
+        let task: URLSessionDownloadTask
+        if let resumeData, !resumeData.isEmpty {
+            task = session.downloadTask(withResumeData: resumeData)
+        } else {
+            task = session.downloadTask(with: request)
+        }
+        task.taskDescription = request.url?.absoluteString
+
+        let box = BackgroundDownloadResultBox()
+        let transfer = BackgroundTransfer(task: task, resultBox: box, progress: progress)
+        stateQueue.sync {
+            transfers[task.taskIdentifier] = transfer
+        }
+        task.resume()
+        return BackgroundDownloadTaskHandle(
+            taskIdentifier: task.taskIdentifier,
+            session: self,
+            resultBox: box
+        )
+    }
+
+    func setBackgroundCompletionHandler(
+        identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        stateQueue.async {
+            self.backgroundCompletionHandlers[identifier] = completionHandler
+        }
+    }
+
+    fileprivate func cancel(taskIdentifier: Int) {
+        let transfer = stateQueue.sync {
+            transfers[taskIdentifier]
+        }
+        transfer?.task.cancel { resumeData in
+            transfer?.resultBox.finish(.failure(BackgroundDownloadError.cancelled(resumeData: resumeData)))
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let transfer = stateQueue.sync {
+            transfers[downloadTask.taskIdentifier]
+        }
+        transfer?.progress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        let transfer = stateQueue.sync {
+            transfers[downloadTask.taskIdentifier]
+        }
+        guard let transfer else { return }
+
+        do {
+            let destination = try makeTemporaryDownloadURL()
+            try? FileManager.default.removeItem(at: destination)
+            do {
+                try FileManager.default.moveItem(at: location, to: destination)
+            } catch {
+                try FileManager.default.copyItem(at: location, to: destination)
+            }
+            stateQueue.sync {
+                transfer.fileURL = destination
+            }
+        } catch {
+            transfer.resultBox.finish(.failure(BackgroundDownloadError.failed(error, resumeData: nil)))
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        let transfer = stateQueue.sync {
+            transfers.removeValue(forKey: task.taskIdentifier)
+        }
+        guard let transfer else { return }
+
+        if let error {
+            let nsError = error as NSError
+            let resumeData = nsError.userInfo[NSURLSessionDownloadTaskResumeData] as? Data
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                transfer.resultBox.finish(.failure(BackgroundDownloadError.cancelled(resumeData: resumeData)))
+            } else {
+                transfer.resultBox.finish(.failure(BackgroundDownloadError.failed(error, resumeData: resumeData)))
+            }
+            return
+        }
+
+        guard let response = task.response as? HTTPURLResponse else {
+            transfer.resultBox.finish(.failure(BackgroundDownloadError.invalidResponse))
+            return
+        }
+        guard transfer.fileURL != nil else {
+            transfer.resultBox.finish(.failure(BackgroundDownloadError.missingDownloadedFile))
+            return
+        }
+        transfer.resultBox.finish(.success(BackgroundDownloadResult(fileURL: transfer.fileURL, response: response)))
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        let handler = stateQueue.sync {
+            backgroundCompletionHandlers.removeValue(forKey: session.configuration.identifier ?? "")
+        }
+        guard let handler else { return }
+        DispatchQueue.main.async {
+            handler()
+        }
+    }
+
+    private func makeTemporaryDownloadURL() throws -> URL {
+        let directory = FileManager.default
+            .urls(for: .cachesDirectory, in: .userDomainMask)
+            .first!
+            .appendingPathComponent("BackgroundDownloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var mutableDirectory = directory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? mutableDirectory.setResourceValues(values)
+        return directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+    }
+}
+
+final class BackgroundDownloadTaskHandle {
+    private let taskIdentifier: Int
+    private unowned let session: BackgroundDownloadSession
+    private let resultBox: BackgroundDownloadResultBox
+
+    fileprivate init(
+        taskIdentifier: Int,
+        session: BackgroundDownloadSession,
+        resultBox: BackgroundDownloadResultBox
+    ) {
+        self.taskIdentifier = taskIdentifier
+        self.session = session
+        self.resultBox = resultBox
+    }
+
+    func wait() async throws -> BackgroundDownloadResult {
+        try await withTaskCancellationHandler {
+            try await resultBox.wait()
+        } onCancel: {
+            session.cancel(taskIdentifier: taskIdentifier)
+        }
+    }
+}
+
+private final class BackgroundTransfer {
+    let task: URLSessionDownloadTask
+    let resultBox: BackgroundDownloadResultBox
+    let progress: @Sendable (_ bytesWritten: Int64, _ totalBytesExpected: Int64) -> Void
+    var fileURL: URL?
+
+    init(
+        task: URLSessionDownloadTask,
+        resultBox: BackgroundDownloadResultBox,
+        progress: @escaping @Sendable (_ bytesWritten: Int64, _ totalBytesExpected: Int64) -> Void
+    ) {
+        self.task = task
+        self.resultBox = resultBox
+        self.progress = progress
+    }
+}
+
+private final class BackgroundDownloadResultBox {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<BackgroundDownloadResult, Error>?
+    private var result: Result<BackgroundDownloadResult, Error>?
+
+    func wait() async throws -> BackgroundDownloadResult {
+        try await withCheckedThrowingContinuation { continuation in
+            var resultToResume: Result<BackgroundDownloadResult, Error>?
+            lock.lock()
+            if let result {
+                resultToResume = result
+            } else {
+                self.continuation = continuation
+            }
+            lock.unlock()
+
+            if let resultToResume {
+                continuation.resume(with: resultToResume)
+            }
+        }
+    }
+
+    func finish(_ result: Result<BackgroundDownloadResult, Error>) {
+        var continuationToResume: CheckedContinuation<BackgroundDownloadResult, Error>?
+        lock.lock()
+        guard self.result == nil else {
+            lock.unlock()
+            return
+        }
+        self.result = result
+        continuationToResume = continuation
+        continuation = nil
+        lock.unlock()
+
+        continuationToResume?.resume(with: result)
+    }
+}
+
+private final class DownloadProgressAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedDownloadedBytes: Int64
+    private var storedExpectedBytes: Int64?
+
+    init(downloadedBytes: Int64, expectedBytes: Int64?) {
+        self.storedDownloadedBytes = downloadedBytes
+        self.storedExpectedBytes = expectedBytes
+    }
+
+    var downloadedBytes: Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedDownloadedBytes
+    }
+
+    var expectedBytes: Int64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedExpectedBytes
+    }
+
+    func update(downloadedBytes: Int64, expectedBytes: Int64?) {
+        lock.lock()
+        storedDownloadedBytes = max(storedDownloadedBytes, downloadedBytes)
+        if let expectedBytes {
+            storedExpectedBytes = expectedBytes
+        }
+        lock.unlock()
+    }
+}
+
+private func updatedManifestForProgress(
+    _ manifest: DownloadManifest,
+    asset: DownloadAsset,
+    file: DownloadFile,
+    source: DownloadFile.Source,
+    downloadedBytes: Int64,
+    expectedBytes: Int64?,
+    metadata: DownloadFileMetadata?
+) -> DownloadManifest {
+    let replacement = DownloadManifestFile(
+        relativePath: file.relativePath,
+        state: .downloading,
+        downloadedBytes: downloadedBytes,
+        expectedBytes: expectedBytes,
+        selectedSourceLabel: source.label,
+        metadata: metadata
+    )
+    let existing = Dictionary(uniqueKeysWithValues: manifest.files.map { ($0.relativePath, $0) })
+    let files = asset.files.map { candidate -> DownloadManifestFile in
+        if candidate.relativePath == file.relativePath {
+            return replacement
+        }
+        return existing[candidate.relativePath] ?? DownloadManifestFile(
+            relativePath: candidate.relativePath,
+            state: .pending,
+            downloadedBytes: 0,
+            expectedBytes: candidate.expectedSize
+        )
+    }
+    return DownloadManifest(
+        schemaVersion: manifest.schemaVersion,
+        assetID: manifest.assetID,
+        createdAt: manifest.createdAt,
+        updatedAt: Date(),
+        files: files
+    )
 }
