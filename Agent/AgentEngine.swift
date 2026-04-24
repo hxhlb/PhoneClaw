@@ -575,8 +575,13 @@ class AgentEngine {
 
     /// 从 ApplicationSupport/PhoneClaw/SYSPROMPT.md 读取 system prompt。
     /// 文件不存在时自动写入 kDefaultSystemPrompt（供用户后续编辑）。
-    /// 如果文件存在但缺少新的 ___DEVICE_SKILLS___ / ___CONTENT_SKILLS___ 占位符,
-    /// 视为旧版自动生成的模板, 备份后用新默认覆盖。
+    /// 两种自动迁移:
+    /// 1. 缺新占位符且仍有旧 `___SKILLS___` → 备份后覆盖
+    /// 2. **Locale 不匹配**: 文件内容**字节相同于** zh/en 的 PromptLocale 默认,
+    ///    但跟当前 locale 的默认不一致 → 备份后覆盖成当前 locale 默认. 这样
+    ///    zh 设备装过 app 再切到 en, 或反过来, 会自动把未编辑的默认 prompt
+    ///    换成当前语言; 用户手动编辑过的内容 (跟两种 default 都不一致)
+    ///    不会被碰.
     func loadSystemPrompt() {
         let fm = FileManager.default
         guard let supportDir = fm.urls(for: .applicationSupportDirectory,
@@ -597,13 +602,28 @@ class AgentEngine {
                 || content.contains("___CONTENT_SKILLS___")
             let hasOldPlaceholder = content.contains("___SKILLS___")
 
+            // Locale-mismatch 检测: 内容恰好是 zh 或 en 的默认 prompt
+            // (用户从未编辑过), 且跟当前 locale default 不一致 → 自动迁移。
+            let current = kDefaultSystemPrompt
+            let zhDefault = PromptLocale.zhHans.defaultSystemPromptAgent
+            let enDefault = PromptLocale.en.defaultSystemPromptAgent
+            let isUnmodifiedDefault = (content == zhDefault) || (content == enDefault)
+            let localeMismatch = isUnmodifiedDefault && (content != current)
+
             if !hasNewPlaceholders && hasOldPlaceholder {
                 let backup = dir.appendingPathComponent("SYSPROMPT.md.bak")
                 try? fm.removeItem(at: backup)
                 try? fm.moveItem(at: file, to: backup)
-                try? kDefaultSystemPrompt.write(to: file, atomically: true, encoding: .utf8)
-                config.systemPrompt = kDefaultSystemPrompt
+                try? current.write(to: file, atomically: true, encoding: .utf8)
+                config.systemPrompt = current
                 print("[Agent] SYSPROMPT migrated: 旧模板已备份到 SYSPROMPT.md.bak, 新默认已写入")
+            } else if localeMismatch {
+                let backup = dir.appendingPathComponent("SYSPROMPT.md.bak")
+                try? fm.removeItem(at: backup)
+                try? fm.moveItem(at: file, to: backup)
+                try? current.write(to: file, atomically: true, encoding: .utf8)
+                config.systemPrompt = current
+                print("[Agent] SYSPROMPT locale migrated to \(LanguageService.shared.current.resolved.rawValue), 旧文件备份到 SYSPROMPT.md.bak")
             } else {
                 config.systemPrompt = content
                 print("[Agent] SYSPROMPT loaded (\(content.count) chars)")
