@@ -254,6 +254,7 @@ actor ResumableAssetDownloader {
             (manifestEntry?.metadata?.sourceURL == nil || manifestEntry?.metadata?.sourceURL == source.url)
         let resumeData = offset == 0 && resumeDataSourceMatches ? (try? Data(contentsOf: resumeDataURL)) : nil
         let usingResumeData = resumeData?.isEmpty == false
+        let resumeDataProgressBase = usingResumeData ? max(offset, manifestEntry?.downloadedBytes ?? 0) : 0
         if offset == 0 && !resumeDataSourceMatches {
             try? fileManager.removeItem(at: resumeDataURL)
         }
@@ -266,23 +267,29 @@ actor ResumableAssetDownloader {
         }
 
         let tracker = DownloadProgressAccumulator(
-            downloadedBytes: offset,
-            expectedBytes: file.expectedSize
+            downloadedBytes: usingResumeData ? resumeDataProgressBase : offset,
+            expectedBytes: file.expectedSize,
+            resumeBase: resumeDataProgressBase
         )
         let handle = backgroundSession.start(
             request: request,
             resumeData: resumeData
         ) { [observer, manifestStore] bytesWritten, totalBytesExpected in
-            let downloadedBytes = usingResumeData
+            let rawDownloadedBytes = usingResumeData
                 ? bytesWritten
                 : offset + bytesWritten
             let expectedBytes: Int64? = {
                 if totalBytesExpected > 0 {
-                    return usingResumeData ? totalBytesExpected : offset + totalBytesExpected
+                    if usingResumeData {
+                        return file.expectedSize ?? max(totalBytesExpected, resumeDataProgressBase + totalBytesExpected)
+                    }
+                    return offset + totalBytesExpected
                 }
                 return file.expectedSize
             }()
-            let bytesPerSecond = tracker.update(downloadedBytes: downloadedBytes, expectedBytes: expectedBytes)
+            let progress = tracker.update(downloadedBytes: rawDownloadedBytes, expectedBytes: expectedBytes)
+            let downloadedBytes = progress.downloadedBytes
+            let bytesPerSecond = progress.bytesPerSecond
 
             Task {
                 let updated = updatedManifestForProgress(
@@ -974,13 +981,16 @@ private final class BackgroundDownloadResultBox {
 
 private final class DownloadProgressAccumulator: @unchecked Sendable {
     private let lock = NSLock()
+    private let resumeBase: Int64
     private var storedDownloadedBytes: Int64
     private var storedExpectedBytes: Int64?
     private var lastSpeedUpdate: CFAbsoluteTime
     private var lastSpeedBytes: Int64
     private var smoothedBytesPerSecond: Double = 0
+    private var resumeDataReportsIncrementalBytes: Bool?
 
-    init(downloadedBytes: Int64, expectedBytes: Int64?) {
+    init(downloadedBytes: Int64, expectedBytes: Int64?, resumeBase: Int64 = 0) {
+        self.resumeBase = resumeBase
         self.storedDownloadedBytes = downloadedBytes
         self.storedExpectedBytes = expectedBytes
         self.lastSpeedUpdate = CFAbsoluteTimeGetCurrent()
@@ -999,9 +1009,23 @@ private final class DownloadProgressAccumulator: @unchecked Sendable {
         return storedExpectedBytes
     }
 
-    func update(downloadedBytes: Int64, expectedBytes: Int64?) -> Double? {
+    func update(downloadedBytes: Int64, expectedBytes: Int64?) -> (downloadedBytes: Int64, bytesPerSecond: Double?) {
         lock.lock()
-        let clampedDownloadedBytes = max(storedDownloadedBytes, downloadedBytes)
+        let effectiveDownloadedBytes: Int64
+        if resumeBase > 0 {
+            if resumeDataReportsIncrementalBytes == nil && downloadedBytes > 0 {
+                resumeDataReportsIncrementalBytes = downloadedBytes < resumeBase
+            }
+            if resumeDataReportsIncrementalBytes == true {
+                effectiveDownloadedBytes = resumeBase + downloadedBytes
+            } else {
+                effectiveDownloadedBytes = max(resumeBase, downloadedBytes)
+            }
+        } else {
+            effectiveDownloadedBytes = downloadedBytes
+        }
+
+        let clampedDownloadedBytes = max(storedDownloadedBytes, effectiveDownloadedBytes)
         storedDownloadedBytes = clampedDownloadedBytes
         if let expectedBytes {
             storedExpectedBytes = expectedBytes
@@ -1021,7 +1045,7 @@ private final class DownloadProgressAccumulator: @unchecked Sendable {
         }
         let speed = smoothedBytesPerSecond > 0 ? smoothedBytesPerSecond : nil
         lock.unlock()
-        return speed
+        return (clampedDownloadedBytes, speed)
     }
 }
 
