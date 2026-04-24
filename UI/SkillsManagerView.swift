@@ -213,7 +213,9 @@ struct SkillDetailCard: View {
                                         Text(tool.description)
                                             .font(.system(size: 11))
                                             .foregroundStyle(Theme.textSecondary)
-                                        if tool.parameters != "无" {
+                                        // "no params" 哨兵跨两种 locale 都要识别 — Health/Clipboard
+                                        // 的 parameters: tr("无", "None") 两种值都算空
+                                        if tool.parameters != "无" && tool.parameters != "None" {
                                             HStack(spacing: 4) {
                                                 Text(tr("参数:", "Parameters:"))
                                                     .foregroundStyle(Theme.textTertiary)

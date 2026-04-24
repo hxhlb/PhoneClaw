@@ -39,12 +39,26 @@ for arg in "$@"; do
 done
 
 # 收集要检查的 SKILL.md 列表 (bash 3 compatible, 不用 mapfile)
+#
+# --staged-only 时**同时**看 staged SKILL.md 和 staged SKILL.en.md:
+# 只改 en.md (删 anchor / 换文件) 也要触发检查, 不能放行。
+# 两路变更归一到各自 skill 目录, 去重。
 zh_files=()
 if [[ "$STAGED_ONLY" == "1" ]]; then
+    skill_ids_seen=""
     while IFS= read -r f; do
-        [[ -n "$f" ]] && zh_files+=("$f")
-    done < <(git diff --cached --name-only --diff-filter=ACMR \
-             | grep -E '^Skills/Library/[^/]+/SKILL\.md$')
+        [[ -n "$f" ]] || continue
+        # 解析出 skill id (Skills/Library/<id>/SKILL.md 或 SKILL.en.md)
+        skill_id=$(echo "$f" | sed -E 's|^Skills/Library/([^/]+)/SKILL(\.en)?\.md$|\1|')
+        [[ "$skill_id" == "$f" ]] && continue  # 没匹配上, 跳过
+        # 去重 (zh 和 en 都改时只检查一次)
+        case " $skill_ids_seen " in
+            *" $skill_id "*) continue ;;
+        esac
+        skill_ids_seen="$skill_ids_seen $skill_id"
+        zh_files+=( "Skills/Library/$skill_id/SKILL.md" )
+    done < <(git diff --cached --name-only --diff-filter=ACMRD \
+             | grep -E '^Skills/Library/[^/]+/SKILL(\.en)?\.md$')
 else
     for f in Skills/Library/*/SKILL.md; do
         [[ -f "$f" ]] && zh_files+=("$f")
@@ -87,7 +101,20 @@ for zh_file in "${zh_files[@]}"; do
     fi
 
     # 3. 当前 zh 的 SHA256 匹配吗?
-    current_sha256=$(shasum -a 256 "$zh_file" | awk '{print $1}')
+    # --staged-only 时读 git index (即将 commit 的内容), 不读工作区 —
+    # 防止 "staged 是改后 zh, 工作区被 revert 回旧内容" 这类漏网.
+    # 非 staged-only 时读工作区 (开发中手工检查).
+    if [[ "$STAGED_ONLY" == "1" ]]; then
+        # 可能 en.md 改了但 zh.md 没改 (只拦 en 变更). 此时 index 没 zh 的 staged
+        # 版本, 退回到 HEAD 里的 zh 版本 (= 即将 commit 的 zh 仍是 HEAD 里的)。
+        if git diff --cached --quiet -- "$zh_file" 2>/dev/null; then
+            current_sha256=$(git show "HEAD:$zh_file" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+        else
+            current_sha256=$(git show ":$zh_file" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+        fi
+    else
+        current_sha256=$(shasum -a 256 "$zh_file" | awk '{print $1}')
+    fi
 
     if [[ "$current_sha256" != "$src_sha256" ]]; then
         echo "⚠️  $skill_id: $zh_file 内容已变化, $en_file 可能过期"

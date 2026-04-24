@@ -43,7 +43,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-steps-today",
             description: tr("读取用户今日步数 (从本地 0 点到当前时间的累计步数)。仅读取,不修改。", "Read the user's step count for today (cumulative steps from local midnight to now). Read-only, no modifications."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await stepsTodayCanonical(args).detail
@@ -59,7 +59,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-steps-yesterday",
             description: tr("读取用户昨日步数 (昨天本地 0 点到 23:59:59 的累计步数)。仅读取,不修改。", "Read the user's step count for yesterday (cumulative steps from yesterday local midnight to 23:59:59). Read-only, no modifications."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await stepsYesterdayCanonical(args).detail
@@ -75,7 +75,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-sleep-last-night",
             description: tr("读取用户昨晚的睡眠数据 (最近 24 小时内的睡眠记录)。返回总时长和分阶段明细。", "Read the user's sleep data for last night (sleep records within the past 24 hours). Returns total duration and per-stage breakdown."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await sleepLastNightCanonical(args).detail
@@ -91,7 +91,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-sleep-week",
             description: tr("读取用户最近 7 天的睡眠汇总 (每晚总时长 + 7 天平均)。", "Read a sleep summary for the user's past 7 days (total duration per night + 7-day average)."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await sleepWeekCanonical(args).detail
@@ -107,7 +107,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-workout-recent",
             description: tr("读取用户最近 7 天的运动记录 (类型、时长、消耗)。", "Read the user's workout records for the past 7 days (type, duration, calories burned)."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await workoutRecentCanonical(args).detail
@@ -123,7 +123,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-distance-today",
             description: tr("读取用户今日步行+跑步距离 (从本地 0 点到当前时间, 单位 km)。仅读取。", "Read the user's walking+running distance for today (from local midnight to now, in km). Read-only."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await distanceTodayCanonical(args).detail
@@ -139,7 +139,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-active-energy-today",
             description: tr("读取用户今日活动消耗的卡路里 (从本地 0 点到当前时间)。仅读取。", "Read the user's active calories burned today (from local midnight to now). Read-only."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await activeEnergyTodayCanonical(args).detail
@@ -155,7 +155,7 @@ enum HealthTools {
         registry.register(RegisteredTool(
             name: "health-heart-rate-resting",
             description: tr("读取用户最近的静息心率 (最近 24 小时平均, 单位 BPM)。仅读取。", "Read the user's recent resting heart rate (average over the past 24 hours, in BPM). Read-only."),
-            parameters: "无",
+            parameters: tr("无", "None"),
             isParameterless: true,
             execute: { args in
                 try await heartRateRestingCanonical(args).detail
