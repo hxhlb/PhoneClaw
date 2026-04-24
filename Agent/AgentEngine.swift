@@ -994,7 +994,7 @@ class AgentEngine {
         }
 
         if trimmedDraft.isEmpty {
-            return "仅根据上一轮图片回答无法确定。"
+            return PromptLocale.current.cannotDetermineFromLastImage
         }
 
         if trimmedDraft.hasSuffix("、")
@@ -1222,14 +1222,14 @@ class AgentEngine {
         let audioInput = audio.map(AudioInput.from(snapshot:))
         let normalizedText: String
         if trimmed.isEmpty, !promptAttachments.isEmpty {
-            normalizedText = "请描述这张图片。"
+            normalizedText = PromptLocale.current.describeImagePromptFallback
         } else if audio != nil {
             // 有音频就无脑前缀 anchor — E2B/E4B 小模型会把 "这是什么？" 之类短 prompt
             // 当成问它自己, 给出 Gemma 自我介绍模板. 空 text 补一个默认意图作为填充,
             // 不再分两个音频分支。偶尔出现的 "关于这段音频：请转写音频" 式轻微冗余可
             // 接受, 胜过维护一套硬编 anchor 词表。
-            let intent = trimmed.isEmpty ? "请详细转写并描述" : trimmed
-            normalizedText = "关于这段音频：\(intent)"
+            let intent = trimmed.isEmpty ? PromptLocale.current.transcribeAudioIntentFallback : trimmed
+            normalizedText = String(format: PromptLocale.current.audioContextFormat, intent)
         } else {
             normalizedText = trimmed
         }
@@ -1391,7 +1391,7 @@ class AgentEngine {
                     #endif
                     let cleaned = self.cleanOutput(fullText)
                     self.messages[msgIndex].update(
-                        content: cleaned.isEmpty ? "（无回复）" : cleaned
+                        content: cleaned.isEmpty ? PromptLocale.current.emptyReplyPlaceholder : cleaned
                     )
                     self.recordRecentImageFollowUpContext(
                         attachments: promptAttachments,
@@ -1515,7 +1515,7 @@ class AgentEngine {
                       let nextTrimmedHistory = ConversationMemoryPolicy.nextTrimmedPriorHistory(
                         from: trimmedPriorHistory
                       ) else {
-                    let hardRejectMessage = "上下文过长，已无法安全继续。请新开会话或缩短问题。"
+                    let hardRejectMessage = PromptLocale.current.hardRejectContextTooLong
                     if let existingIndex = earlyAssistantPlaceholderIndex,
                        messages.indices.contains(existingIndex) {
                         messages[existingIndex].update(role: .system, content: hardRejectMessage)
@@ -1696,7 +1696,7 @@ class AgentEngine {
                                 await MainActor.run {
                                     if self.messages.indices.contains(msgIndex) {
                                         self.messages[msgIndex].update(
-                                            content: repaired.isEmpty ? "（无回复）" : repaired
+                                            content: repaired.isEmpty ? PromptLocale.current.emptyReplyPlaceholder : repaired
                                         )
                                     }
                                     self.isProcessing = false
@@ -1705,7 +1705,7 @@ class AgentEngine {
                             return
                         }
                         self.messages[msgIndex].update(
-                            content: cleaned.isEmpty ? "（无回复）" : cleaned
+                            content: cleaned.isEmpty ? PromptLocale.current.emptyReplyPlaceholder : cleaned
                         )
                         self.isProcessing = false
                     }
@@ -1809,7 +1809,7 @@ class AgentEngine {
 
         if let lastAssistant = messages.lastIndex(where: { $0.role == .assistant }) {
             let content = messages[lastAssistant].content.replacingOccurrences(of: "▍", with: "")
-            messages[lastAssistant].update(content: content.isEmpty ? "（已中断）" : content)
+            messages[lastAssistant].update(content: content.isEmpty ? PromptLocale.current.cancelledReplyPlaceholder : content)
         }
 
         log("[Agent] Generation cancelled")
