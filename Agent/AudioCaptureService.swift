@@ -127,7 +127,10 @@ final class AudioCaptureService: NSObject, @preconcurrency AVAudioRecorderDelega
             rec.prepareToRecord()
 
             guard rec.record() else {
-                lastErrorMessage = "AVAudioRecorder.record() 返回 false"
+                lastErrorMessage = tr(
+                    "AVAudioRecorder.record() 返回 false",
+                    "AVAudioRecorder.record() returned false"
+                )
                 return false
             }
 
