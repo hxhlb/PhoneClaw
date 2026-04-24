@@ -426,7 +426,12 @@ struct PromptBuilder {
                 }
             case .skillResult:
                 let skillLabel = msg.skillName ?? "tool"
-                prompt += "<|turn>user\n工具 \(skillLabel) 的执行结果：\(msg.content)<turn|>\n"
+                // History 的 skill result 用当前语言 label. 历史 prompt 里 Chinese
+                // label 会把英文模型 drift 回中文 (E2B 对前文语言特别敏感)。
+                prompt += "<|turn>user\n" + tr(
+                    "工具 \(skillLabel) 的执行结果：\(msg.content)",
+                    "Result of tool \(skillLabel): \(msg.content)"
+                ) + "<turn|>\n"
             }
         }
 
