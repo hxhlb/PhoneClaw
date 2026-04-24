@@ -997,6 +997,8 @@ class AgentEngine {
             return PromptLocale.current.cannotDetermineFromLastImage
         }
 
+        // 结尾补全句号. zh 用 "。", en 用 ".".
+        let terminator = tr("。", ".")
         if trimmedDraft.hasSuffix("、")
             || trimmedDraft.hasSuffix("，")
             || trimmedDraft.hasSuffix(",")
@@ -1004,10 +1006,10 @@ class AgentEngine {
             || trimmedDraft.hasSuffix(":")
             || trimmedDraft.hasSuffix("；")
             || trimmedDraft.hasSuffix(";") {
-            return String(trimmedDraft.dropLast()) + "。"
+            return String(trimmedDraft.dropLast()) + terminator
         }
 
-        return trimmedDraft + "。"
+        return trimmedDraft + terminator
     }
 
     private func streamImageFollowUpStableReply(
