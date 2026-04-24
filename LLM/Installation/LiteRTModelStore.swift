@@ -13,11 +13,14 @@ final class LiteRTModelStore: ModelInstaller {
 
     private(set) var installStates: [String: ModelInstallState] = [:]
     private(set) var downloadProgress: [String: DownloadProgress] = [:]
+    private(set) var resumableModelIDs: Set<String> = []
 
     private var activeTasks: [String: Task<Void, Error>] = [:]
 
     @ObservationIgnored
     private var downloaderStorage: ResumableAssetDownloader?
+    @ObservationIgnored
+    private var manifestStoreStorage: DownloadManifestStore?
 
     // MARK: - Paths
 
@@ -54,6 +57,8 @@ final class LiteRTModelStore: ModelInstaller {
         // 已安装
         if artifactPath(for: model) != nil {
             installStates[modelID] = .downloaded
+            resumableModelIDs.remove(modelID)
+            downloadProgress[modelID] = nil
             return
         }
 
@@ -76,15 +81,18 @@ final class LiteRTModelStore: ModelInstaller {
             activeTasks[modelID] = nil
             installStates[modelID] = .downloaded
             downloadProgress[modelID] = nil
+            resumableModelIDs.remove(modelID)
         } catch is CancellationError {
             activeTasks[modelID] = nil
             installStates[modelID] = .notInstalled
             downloadProgress[modelID] = nil
+            await refreshResumableState(for: model)
             throw CancellationError()
         } catch {
             activeTasks[modelID] = nil
             installStates[modelID] = .failed(userVisibleErrorMessage(for: error))
             downloadProgress[modelID] = nil
+            await refreshResumableState(for: model)
             throw error
         }
     }
@@ -142,11 +150,20 @@ final class LiteRTModelStore: ModelInstaller {
             return downloaderStorage
         }
         let downloader = ResumableAssetDownloader(
-            manifestStore: DownloadManifestStore(rootDirectory: modelsDirectory),
+            manifestStore: downloadManifestStore(),
             observer: LiteRTDownloadObserver(store: self)
         )
         downloaderStorage = downloader
         return downloader
+    }
+
+    private func downloadManifestStore() -> DownloadManifestStore {
+        if let manifestStoreStorage {
+            return manifestStoreStorage
+        }
+        let store = DownloadManifestStore(rootDirectory: modelsDirectory)
+        manifestStoreStorage = store
+        return store
     }
 
     private func userVisibleErrorMessage(for error: Error) -> String {
@@ -227,10 +244,15 @@ final class LiteRTModelStore: ModelInstaller {
         activeTasks[modelID] = nil
         installStates[modelID] = .notInstalled
         downloadProgress[modelID] = nil
+        refreshResumableStates()
     }
 
     func installState(for modelID: String) -> ModelInstallState {
         installStates[modelID] ?? .notInstalled
+    }
+
+    func hasResumableDownload(for modelID: String) -> Bool {
+        resumableModelIDs.contains(modelID)
     }
 
     func artifactPath(for model: ModelDescriptor) -> URL? {
@@ -261,11 +283,54 @@ final class LiteRTModelStore: ModelInstaller {
                     installStates[model.id] = .notInstalled
                 } else {
                     installStates[model.id] = .downloaded
+                    resumableModelIDs.remove(model.id)
+                    downloadProgress[model.id] = nil
                 }
             } else {
                 installStates[model.id] = .notInstalled
             }
         }
+        refreshResumableStates()
+    }
+
+    private func refreshResumableStates() {
+        Task { [weak self] in
+            guard let self else { return }
+            for model in ModelDescriptor.allModels {
+                await self.refreshResumableState(for: model)
+            }
+        }
+    }
+
+    private func refreshResumableState(for model: ModelDescriptor) async {
+        guard artifactPath(for: model) == nil else {
+            await applyResumableState(nil, for: model)
+            return
+        }
+
+        let state = try? await downloadManifestStore().resumeState(for: model.id)
+        await applyResumableState(state, for: model)
+    }
+
+    @MainActor
+    private func applyResumableState(_ state: DownloadResumeState?, for model: ModelDescriptor) {
+        guard let state else {
+            resumableModelIDs.remove(model.id)
+            if installState(for: model.id) == .notInstalled {
+                downloadProgress[model.id] = nil
+            }
+            return
+        }
+
+        resumableModelIDs.insert(model.id)
+        guard installState(for: model.id) == .notInstalled else { return }
+
+        downloadProgress[model.id] = DownloadProgress(
+            bytesReceived: state.downloadedBytes,
+            totalBytes: state.totalBytes ?? (model.expectedFileSize > 0 ? model.expectedFileSize : nil),
+            bytesPerSecond: nil,
+            currentFile: model.fileName
+        )
     }
 }
 

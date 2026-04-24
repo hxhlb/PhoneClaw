@@ -241,7 +241,7 @@ struct ConfigurationsView: View {
                             )
                         }
 
-                        if let detail = modelStateDetail(state) {
+                        if let detail = modelStateDetail(state, modelID: model.id) {
                             Text(detail)
                                 .font(.caption)
                                 .foregroundStyle(state.isFailure ? Theme.accent : Theme.textTertiary)
@@ -438,7 +438,8 @@ struct ConfigurationsView: View {
         switch liveDownloader.installState {
         case .notInstalled:
             let completedAssets = liveDownloader.completedAssetCount
-            Button(completedAssets > 0 ? tr("继续下载", "Resume") : tr("下载", "Download")) {
+            let canResume = completedAssets > 0 || liveDownloader.resumableAssetCount > 0
+            Button(canResume ? tr("继续下载", "Resume") : tr("下载", "Download")) {
                 Task { await liveDownloader.downloadAll() }
             }
             .font(.caption.weight(.semibold))
@@ -531,21 +532,49 @@ struct ConfigurationsView: View {
 
     private func liveDownloadMetricsText(_ metrics: ModelDownloadMetrics) -> String {
         let speedText = formattedSpeed(metrics.bytesPerSecond)
+        var result: String
         if let totalBytes = metrics.totalBytes, totalBytes > 0 {
-            return "\(formattedBytes(metrics.bytesReceived)) / \(formattedBytes(totalBytes)) · \(speedText)"
+            result = "\(formattedBytes(metrics.bytesReceived)) / \(formattedBytes(totalBytes))"
+        } else {
+            result = formattedBytes(metrics.bytesReceived)
         }
-        return "\(formattedBytes(metrics.bytesReceived)) · \(speedText)"
+        if !speedText.isEmpty {
+            result += " · \(speedText)"
+        }
+        if let sourceLabel = metrics.sourceLabel, !sourceLabel.isEmpty {
+            result += " · \(sourceLabel)"
+        }
+        return result
     }
 
     private func liveStateDetail(_ state: ModelInstallState) -> String? {
         switch state {
         case .notInstalled:
             let completedAssets = liveDownloader.completedAssetCount
-            if completedAssets > 0 {
-                return tr(
-                    "已完成 \(completedAssets)/\(LiveModelDefinition.all.count)，可继续下载。",
-                    "\(completedAssets)/\(LiveModelDefinition.all.count) complete. You can resume downloading."
-                )
+            let resumableAssets = liveDownloader.resumableAssetCount
+            if completedAssets > 0 || resumableAssets > 0 {
+                let progressText = liveDownloader.downloadMetrics.map(liveDownloadMetricsText)
+                let base: String
+                if completedAssets > 0, resumableAssets > 0 {
+                    base = tr(
+                        "已完成 \(completedAssets)/\(LiveModelDefinition.all.count)，另有 \(resumableAssets) 个可继续下载。",
+                        "\(completedAssets)/\(LiveModelDefinition.all.count) complete, \(resumableAssets) can resume."
+                    )
+                } else if completedAssets > 0 {
+                    base = tr(
+                        "已完成 \(completedAssets)/\(LiveModelDefinition.all.count)，可继续下载。",
+                        "\(completedAssets)/\(LiveModelDefinition.all.count) complete. You can resume downloading."
+                    )
+                } else {
+                    base = tr(
+                        "已有下载进度，可继续下载。",
+                        "Download progress found. You can resume downloading."
+                    )
+                }
+                if let progressText, !progressText.isEmpty {
+                    return "\(base) \(progressText)"
+                }
+                return base
             }
             return tr("未安装 (~\(LiveModelDefinition.estimatedSizeMB)MB)", "Not installed (~\(LiveModelDefinition.estimatedSizeMB)MB)")
         case .downloaded:
@@ -646,7 +675,8 @@ struct ConfigurationsView: View {
     private func modelStateControl(for model: ModelDescriptor, state: ModelInstallState) -> some View {
         switch state {
         case .notInstalled:
-            Button(tr("下载", "Download")) {
+            let isResumable = engine.installer.hasResumableDownload(for: model.id)
+            Button(isResumable ? tr("继续下载", "Resume") : tr("下载", "Download")) {
                 selectedModelID = model.id
                 Task {
                     try await engine.installer.install(model: model)
@@ -779,9 +809,18 @@ struct ConfigurationsView: View {
         return formattedBytes(Int64(bytesPerSecond)) + "/s"
     }
 
-    private func modelStateDetail(_ state: ModelInstallState) -> String? {
+    private func modelStateDetail(_ state: ModelInstallState, modelID: String) -> String? {
         switch state {
         case .notInstalled:
+            if engine.installer.hasResumableDownload(for: modelID) {
+                if let metrics = engine.installer.downloadProgress[modelID] {
+                    let progress = downloadMetricsText(metrics)
+                    if !progress.isEmpty {
+                        return tr("可继续下载 · \(progress)", "Ready to resume · \(progress)")
+                    }
+                }
+                return tr("可继续下载", "Ready to resume")
+            }
             return tr("未安装", "Not Installed")
         case .checkingSource:
             return tr("正在准备下载。", "Preparing download.")

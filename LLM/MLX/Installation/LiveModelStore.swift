@@ -10,6 +10,7 @@ import Foundation
 final class LiveModelStore {
     private(set) var installState: ModelInstallState = .notInstalled
     private(set) var downloadMetrics: ModelDownloadMetrics?
+    private(set) var resumableAssetCount: Int = 0
 
     private var currentTask: Task<Void, Never>?
     private var activeTasks: [String: Task<DownloadProgressSnapshot, Error>] = [:]
@@ -34,12 +35,15 @@ final class LiveModelStore {
         cleanupLegacyPartialsWithoutManifest()
         if LiveModelDefinition.isAvailable {
             installState = .downloaded
+            downloadMetrics = nil
+            resumableAssetCount = 0
         } else if case .downloading = installState {
             return
         } else if case .checkingSource = installState {
             return
         } else {
             installState = .notInstalled
+            refreshResumableStates()
         }
     }
 
@@ -78,6 +82,7 @@ final class LiveModelStore {
         }
         installState = .notInstalled
         downloadMetrics = nil
+        resumableAssetCount = 0
     }
 
     private func runDownloadAll() async {
@@ -174,6 +179,7 @@ final class LiveModelStore {
     private func configureAggregate(_ plans: [LiveAssetDownloadPlan]) {
         activePlans = Dictionary(uniqueKeysWithValues: plans.map { ($0.liveAsset.id, $0) })
         progressSnapshots = [:]
+        resumableAssetCount = 0
         let totalFiles = plans.reduce(0) { $0 + $1.files.count }
         installState = .downloading(completedFiles: 0, totalFiles: totalFiles, currentFile: "")
         downloadMetrics = ModelDownloadMetrics(
@@ -233,6 +239,52 @@ final class LiveModelStore {
             total += bytes
         }
         return total
+    }
+
+    private func refreshResumableStates() {
+        Task { [weak self] in
+            guard let self else { return }
+
+            var count = 0
+            var downloadedBytes: Int64 = 0
+            var totalBytes: Int64 = 0
+            var hasUnknownTotal = false
+
+            for asset in LiveModelDefinition.all where LiveModelDefinition.resolve(for: asset) == nil {
+                guard let state = try? await self.manifestStore().resumeState(for: asset.id) else {
+                    continue
+                }
+                count += 1
+                downloadedBytes += state.downloadedBytes
+                if let total = state.totalBytes {
+                    totalBytes += total
+                } else {
+                    hasUnknownTotal = true
+                }
+            }
+
+            await MainActor.run {
+                guard !LiveModelDefinition.isAvailable else {
+                    self.resumableAssetCount = 0
+                    self.downloadMetrics = nil
+                    return
+                }
+
+                self.resumableAssetCount = count
+                guard case .notInstalled = self.installState else { return }
+
+                if count > 0 {
+                    self.downloadMetrics = ModelDownloadMetrics(
+                        bytesReceived: downloadedBytes,
+                        totalBytes: hasUnknownTotal ? nil : totalBytes,
+                        bytesPerSecond: nil,
+                        sourceLabel: nil
+                    )
+                } else {
+                    self.downloadMetrics = nil
+                }
+            }
+        }
     }
 
     private func cleanupLegacyPartialsWithoutManifest() {

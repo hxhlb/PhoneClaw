@@ -40,6 +40,18 @@ struct DownloadManifestStoreTest {
         }
         precondition(decodedManifest == manifest, "Manifest JSON round-trip changed data")
 
+        let partialURL = try await store.partialFileURL(
+            for: manifest.assetID,
+            relativePath: "gemma-4-E2B-it.litertlm"
+        )
+        try Data(repeating: 0x42, count: 21).write(to: partialURL)
+        guard let resumeState = try await store.resumeState(for: manifest.assetID) else {
+            fatalError("Expected partial download to be resumable")
+        }
+        precondition(resumeState.downloadedBytes == 21, "Resume state should report partial bytes")
+        precondition(resumeState.totalBytes == 42, "Resume state should preserve expected bytes")
+        precondition(resumeState.resumableFileCount == 1, "Resume state should count resumable files")
+
         let completedManifest = DownloadManifest(
             assetID: manifest.assetID,
             createdAt: now,
@@ -62,6 +74,11 @@ struct DownloadManifestStoreTest {
         precondition(
             decodedCompletedManifest == completedManifest,
             "Overwritten manifest JSON round-trip changed data"
+        )
+        let completedResumeState = try await store.resumeState(for: manifest.assetID)
+        precondition(
+            completedResumeState == nil,
+            "Complete manifest should not be treated as resumable"
         )
 
         let metadataData = try JSONEncoder.downloadManifestEncoder.encode(metadata)

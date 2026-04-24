@@ -46,7 +46,7 @@ actor DownloadManifestStore {
     }
 
     func readManifest(for assetID: String) throws -> DownloadManifest? {
-        let url = try manifestURL(for: assetID)
+        let url = rawManifestURL(for: assetID)
         guard fileManager.fileExists(atPath: url.path) else { return nil }
 
         do {
@@ -63,6 +63,38 @@ actor DownloadManifestStore {
         } catch {
             throw DownloadFailure.manifestCorrupt(error.localizedDescription)
         }
+    }
+
+    func resumeState(for assetID: String) throws -> DownloadResumeState? {
+        guard let manifest = try readManifest(for: assetID) else { return nil }
+
+        var downloadedBytes: Int64 = 0
+        var totalBytes: Int64 = 0
+        var hasUnknownTotal = false
+        var resumableFileCount = 0
+
+        for file in manifest.files where file.state != .complete {
+            let partialURL = try partialFileURL(for: assetID, relativePath: file.relativePath)
+            let partialBytes = fileSize(at: partialURL)
+            let bytes = max(partialBytes, file.downloadedBytes)
+            guard bytes > 0 else { continue }
+
+            downloadedBytes += bytes
+            resumableFileCount += 1
+
+            if let expected = file.expectedBytes ?? file.metadata?.contentLength, expected > 0 {
+                totalBytes += expected
+            } else {
+                hasUnknownTotal = true
+            }
+        }
+
+        guard resumableFileCount > 0 else { return nil }
+        return DownloadResumeState(
+            downloadedBytes: downloadedBytes,
+            totalBytes: hasUnknownTotal ? nil : totalBytes,
+            resumableFileCount: resumableFileCount
+        )
     }
 
     func writeManifest(_ manifest: DownloadManifest, for assetID: String) throws {
@@ -107,6 +139,24 @@ actor DownloadManifestStore {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try mutableURL.setResourceValues(values)
+    }
+
+    private func rawWorkspaceDirectory(for assetID: String) -> URL {
+        rootDirectory
+            .appendingPathComponent(Self.workspaceDirectoryName, isDirectory: true)
+            .appendingPathComponent(sanitizedAssetID(assetID), isDirectory: true)
+    }
+
+    private func rawManifestURL(for assetID: String) -> URL {
+        rawWorkspaceDirectory(for: assetID)
+            .appendingPathComponent(Self.manifestFileName, isDirectory: false)
+    }
+
+    private func fileSize(at url: URL) -> Int64 {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path) else {
+            return 0
+        }
+        return (attributes[.size] as? Int64) ?? 0
     }
 
     private func atomicWrite(_ data: Data, to destinationURL: URL) throws {

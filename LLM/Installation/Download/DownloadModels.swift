@@ -146,3 +146,15 @@ struct DownloadFileMetadata: Codable, Equatable, Sendable {
         self.updatedAt = updatedAt
     }
 }
+
+struct DownloadResumeState: Equatable, Sendable {
+    let downloadedBytes: Int64
+    let totalBytes: Int64?
+    let resumableFileCount: Int
+
+    init(downloadedBytes: Int64, totalBytes: Int64?, resumableFileCount: Int) {
+        self.downloadedBytes = downloadedBytes
+        self.totalBytes = totalBytes
+        self.resumableFileCount = resumableFileCount
+    }
+}
