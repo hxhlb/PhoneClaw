@@ -33,8 +33,7 @@ enum LiveDownloadPlanner {
         "hf-mirror.com",
         "huggingface.co"
     ]
-    private static let probeByteLimit = 256 * 1024
-    private static let probeTimeout: TimeInterval = 8
+    private static let treeRequestTimeout: TimeInterval = 12
 
     static func makePlans(for assets: [LiveModelAsset]) async throws -> [LiveAssetDownloadPlan] {
         var plans: [LiveAssetDownloadPlan] = []
@@ -59,12 +58,11 @@ enum LiveDownloadPlanner {
                     throw DownloadFailure.invalidResponse("\(asset.id) has no downloadable files")
                 }
 
-                let sourceOrder = await probeSourceOrder(for: asset, sampleFile: repositoryFiles[0].path)
                 let downloadFiles = repositoryFiles.map { repositoryFile in
                     DownloadFile(
                         relativePath: repositoryFile.path,
                         expectedSize: normalizedExpectedSize(repositoryFile.size),
-                        sources: downloadSources(for: asset, file: repositoryFile.path, sourceOrder: sourceOrder)
+                        sources: downloadSources(for: asset, file: repositoryFile.path)
                     )
                 }
 
@@ -130,7 +128,9 @@ enum LiveDownloadPlanner {
     }
 
     private static func fetchTreeItems(url: URL) async throws -> [TreeItem] {
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = treeRequestTimeout
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw DownloadFailure.invalidResponse("Missing HTTP response")
         }
@@ -177,72 +177,6 @@ enum LiveDownloadPlanner {
         }
     }
 
-    private static func probeSourceOrder(for asset: LiveModelAsset, sampleFile: String) async -> [String] {
-        let sources = downloadSources(for: asset, file: sampleFile)
-        var results: [SourceProbeResult] = []
-
-        await withTaskGroup(of: SourceProbeResult?.self) { group in
-            for source in sources {
-                group.addTask {
-                    await probe(source: source)
-                }
-            }
-
-            for await result in group {
-                if let result {
-                    results.append(result)
-                }
-            }
-        }
-
-        guard !results.isEmpty else { return hosts }
-
-        let ranked = results
-            .sorted {
-                if $0.bytesPerSecond == $1.bytesPerSecond {
-                    return $0.label < $1.label
-                }
-                return $0.bytesPerSecond > $1.bytesPerSecond
-            }
-            .map(\.label)
-        let remaining = hosts.filter { !ranked.contains($0) }
-        let order = ranked + remaining
-        print("[LiveDL] \(asset.id) source probe order: \(order.joined(separator: " -> "))")
-        return order
-    }
-
-    private static func probe(source: DownloadFile.Source) async -> SourceProbeResult? {
-        var request = URLRequest(url: source.url)
-        request.setValue("bytes=0-\(probeByteLimit - 1)", forHTTPHeaderField: "Range")
-        request.timeoutInterval = probeTimeout
-
-        let startedAt = CFAbsoluteTimeGetCurrent()
-        do {
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-                return nil
-            }
-
-            var received = 0
-            for try await _ in bytes {
-                received += 1
-                if received >= probeByteLimit {
-                    break
-                }
-            }
-
-            guard received > 0 else { return nil }
-            let elapsed = max(CFAbsoluteTimeGetCurrent() - startedAt, 0.001)
-            return SourceProbeResult(
-                label: source.label,
-                bytesPerSecond: Double(received) / elapsed
-            )
-        } catch {
-            return nil
-        }
-    }
-
     private static func encodedPath(_ path: String) -> String {
         path.components(separatedBy: "/")
             .map { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? $0 }
@@ -265,8 +199,4 @@ enum LiveDownloadPlanner {
         let size: Int64?
     }
 
-    private struct SourceProbeResult: Sendable {
-        let label: String
-        let bytesPerSecond: Double
-    }
 }
