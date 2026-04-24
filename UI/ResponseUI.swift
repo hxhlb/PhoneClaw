@@ -125,7 +125,7 @@ struct ThinkingCardView: View {
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !compact.isEmpty else { return localizedThinkingText("已捕获思考内容", "Captured thinking content") }
+        guard !compact.isEmpty else { return tr("已捕获思考内容", "Captured thinking content") }
         return String(compact.prefix(72)) + (compact.count > 72 ? "…" : "")
     }
 
@@ -139,7 +139,7 @@ struct ThinkingCardView: View {
                     .background(Theme.accentSubtle, in: RoundedRectangle(cornerRadius: 7))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(localizedThinkingText("思考", "Think"))
+                    Text(tr("思考", "Think"))
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.textPrimary)
                     if !isExpanded {
@@ -152,7 +152,7 @@ struct ThinkingCardView: View {
 
                 Spacer()
 
-                Text(localizedThinkingText("\(lineCount) 行", "\(lineCount) lines"))
+                Text(tr("\(lineCount) 行", "\(lineCount) lines"))
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(Theme.textTertiary)
 

@@ -266,7 +266,7 @@ struct ContentView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles")
                             .font(.system(size: 11, weight: .semibold))
-                        Text(localizedThinkingText("思考", "Think"))
+                        Text(tr("思考", "Think"))
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
                     }
                     .foregroundStyle(engine.config.enableThinking ? Theme.bg : Theme.textSecondary)
